@@ -1,0 +1,292 @@
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
+    QComboBox, QDialog, QDialogButtonBox, QSlider,
+)
+from PyQt6.QtCore import Qt, pyqtSignal
+from src.core.game_state import GameMode
+from src.constants import (
+    COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_LAVENDER, COLOR_MINT,
+    COLOR_CREAM, COLOR_PEACH, COLOR_SKY,
+)
+
+
+class ModeCard(QFrame):
+    clicked = pyqtSignal(str)
+
+    def __init__(self, mode: str, title: str, description: str, emoji: str = "", bg_color: str = COLOR_CREAM):
+        super().__init__()
+        self.setObjectName("card")
+        self.setFixedSize(220, 200)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._mode = mode
+
+        self.setStyleSheet(f"""
+            QFrame#card {{
+                background-color: {bg_color};
+                border: 2px dashed {COLOR_PINK_LIGHT};
+                border-radius: 20px;
+                padding: 16px;
+            }}
+            QFrame#card:hover {{
+                border: 2px dashed {COLOR_ACCENT};
+                background-color: #fff0f3;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(10)
+
+        if emoji:
+            emoji_label = QLabel(emoji)
+            emoji_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            emoji_label.setStyleSheet("font-size: 42px; background: transparent; border: none;")
+            layout.addWidget(emoji_label)
+
+        title_label = QLabel(title)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setStyleSheet(f"font-size: 22px; font-weight: bold; color: #5B4A4A; background: transparent; border: none;")
+        layout.addWidget(title_label)
+
+        desc_label = QLabel(description)
+        desc_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        desc_label.setStyleSheet("font-size: 13px; color: #A08888; background: transparent; border: none;")
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self._mode)
+        super().mousePressEvent(event)
+
+
+class StartGameDialog(QDialog):
+    """Popup to choose content amount before starting a game."""
+
+    def __init__(self, mode_name: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("开始练习")
+        self.setFixedSize(380, 200)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {COLOR_CREAM};
+                border: 2px dashed {COLOR_PINK_LIGHT};
+                border-radius: 16px;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 20, 24, 20)
+
+        mode_labels = {
+            GameMode.FOLLOW_TYPING.value: "跟打练习",
+            GameMode.FALLING_TEXT.value: "掉落消除",
+            GameMode.TIMED_CHALLENGE.value: "限时挑战",
+        }
+        title = QLabel(f"📖 {mode_labels.get(mode_name, mode_name)}")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLOR_ACCENT}; background: transparent; border: none;")
+        layout.addWidget(title)
+
+        # Ratio selection
+        ratio_label = QLabel("选择内容量：")
+        ratio_label.setStyleSheet("font-size: 14px; color: #5B4A4A; background: transparent; border: none;")
+        layout.addWidget(ratio_label)
+
+        slider_row = QHBoxLayout()
+        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider.setRange(10, 100)
+        self._slider.setSingleStep(10)
+        self._slider.setValue(100)
+        self._slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._slider.setTickInterval(10)
+        self._slider.valueChanged.connect(self._on_slider_changed)
+        slider_row.addWidget(self._slider, stretch=1)
+
+        self._ratio_label = QLabel("100%")
+        self._ratio_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLOR_ACCENT}; min-width: 48px; background: transparent; border: none;")
+        slider_row.addWidget(self._ratio_label)
+        layout.addLayout(slider_row)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        cancel_btn = QPushButton("取消")
+        cancel_btn.setFixedWidth(80)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #FFE0E0;
+                color: #5B4A4A;
+                border: 2px solid {COLOR_PINK_LIGHT};
+                border-radius: 12px;
+                padding: 6px 16px;
+            }}
+            QPushButton:hover {{ background-color: #FFD1DC; }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        start_btn = QPushButton("开始！")
+        start_btn.setObjectName("primary")
+        start_btn.setFixedWidth(100)
+        start_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_ACCENT};
+                color: #ffffff;
+                border: 2px solid {COLOR_ACCENT};
+                border-radius: 14px;
+                padding: 6px 20px;
+                font-size: 15px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{ background-color: #ff7096; }}
+        """)
+        start_btn.clicked.connect(self.accept)
+        btn_row.addWidget(start_btn)
+        layout.addLayout(btn_row)
+
+    def _on_slider_changed(self, value):
+        self._ratio_label.setText(f"{value}%")
+
+    def get_ratio(self) -> float:
+        return self._slider.value() / 100.0
+
+
+class MenuScreen(QWidget):
+    navigate_to = None
+
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(24)
+
+        # Title area
+        title = QLabel("逐字拾光")
+        title.setObjectName("title")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet(f"font-size: 42px; font-weight: bold; color: {COLOR_ACCENT};")
+        layout.addWidget(title)
+
+        subtitle = QLabel(" 一起来练打字吧~ ")
+        subtitle.setObjectName("subtitle")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("font-size: 18px; color: #A08888;")
+        layout.addWidget(subtitle)
+
+        layout.addSpacing(4)
+
+        # Category selector
+        cat_row = QHBoxLayout()
+        cat_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        cat_row.setSpacing(10)
+
+        cat_label = QLabel("📚 素材来源：")
+        cat_label.setStyleSheet("font-size: 15px; color: #5B4A4A; background: transparent; border: none;")
+        cat_row.addWidget(cat_label)
+
+        self._cat_combo = QComboBox()
+        self._cat_combo.addItems(["全部", "诗词", "成语", "文章", "新闻"])
+        self._cat_combo.setFixedWidth(130)
+        self._cat_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {COLOR_CREAM};
+                color: #5B4A4A;
+                border: 2px solid {COLOR_PINK_LIGHT};
+                border-radius: 10px;
+                padding: 6px 12px;
+                font-size: 14px;
+            }}
+            QComboBox:hover {{ border-color: {COLOR_ACCENT}; }}
+            QComboBox::drop-down {{ border: none; width: 24px; }}
+            QComboBox QAbstractItemView {{
+                background-color: #fff;
+                color: #5B4A4A;
+                border: 2px solid {COLOR_PINK_LIGHT};
+                border-radius: 8px;
+                selection-background-color: {COLOR_ACCENT};
+                selection-color: #fff;
+            }}
+        """)
+        cat_row.addWidget(self._cat_combo)
+        layout.addLayout(cat_row)
+
+        layout.addSpacing(4)
+
+        # Mode cards
+        cards_layout = QHBoxLayout()
+        cards_layout.setSpacing(20)
+        cards_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        modes = [
+            (GameMode.FOLLOW_TYPING.value, "跟打练习", "逐字跟打原文\n看看你的速度~", "📖", COLOR_CREAM),
+            (GameMode.FALLING_TEXT.value, "掉落消除", "字符从天而降\n快快消灭它们!", "🌧️", COLOR_SKY),
+            (GameMode.TIMED_CHALLENGE.value, "限时挑战", "限时冲刺模式\n连击加分哦!", "⏱️", COLOR_PEACH),
+        ]
+        for mode_id, title_text, desc, emoji, bg in modes:
+            card = ModeCard(mode_id, title_text, desc, emoji, bg)
+            card.clicked.connect(self._on_mode_selected)
+            cards_layout.addWidget(card)
+
+        layout.addLayout(cards_layout)
+
+        layout.addSpacing(8)
+
+        # Bottom navigation
+        nav_layout = QHBoxLayout()
+        nav_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        nav_layout.setSpacing(16)
+
+        nav_btns = [
+            ("📊 历史记录", "stats", COLOR_LAVENDER),
+            ("📚 素材库", "material", COLOR_MINT),
+            ("⚙️ 设置", "settings", COLOR_PEACH),
+        ]
+        for text, target, bg in nav_btns:
+            btn = QPushButton(text)
+            btn.setFixedSize(140, 44)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg};
+                    color: #5B4A4A;
+                    border: 2px solid {COLOR_PINK_LIGHT};
+                    border-radius: 14px;
+                    padding: 8px 20px;
+                    font-size: 15px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLOR_ACCENT};
+                    color: #ffffff;
+                    border-color: {COLOR_ACCENT};
+                }}
+            """)
+            btn.clicked.connect(lambda checked, t=target: self.navigate_to(t) if self.navigate_to else None)
+            nav_layout.addWidget(btn)
+
+        layout.addLayout(nav_layout)
+
+    def _get_category(self) -> str | None:
+        cat_map = {"全部": None, "诗词": "poetry", "成语": "idiom", "文章": "article", "新闻": "news"}
+        return cat_map.get(self._cat_combo.currentText())
+
+    def _on_mode_selected(self, mode: str):
+        category = self._get_category()
+        # Only show ratio dialog for article/news category
+        if category in ("article", "news"):
+            dialog = StartGameDialog(mode, parent=self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                ratio = dialog.get_ratio()
+            else:
+                return
+        else:
+            ratio = 1.0
+
+        if self.navigate_to:
+            self.navigate_to("game", {
+                "mode": mode,
+                "category": category,
+                "ratio": ratio,
+            })
+
+    def on_enter(self, data: dict):
+        pass
