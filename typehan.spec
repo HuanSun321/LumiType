@@ -11,6 +11,9 @@ a = Analysis(
     datas=[
         ('data/builtin', 'data/builtin'),
         ('resources', 'resources'),
+        ('图标.png', '.'),
+        ('兔子.png', '.'),
+        ('app.ico', '.'),
     ],
     hiddenimports=[
         'pypinyin',
@@ -52,6 +55,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='app.ico',
 )
 
 coll = COLLECT(

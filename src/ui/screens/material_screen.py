@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QComboBox, QLineEdit,
-    QProgressBar, QMessageBox,
+    QProgressBar, QMessageBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from src.materials.material_manager import MaterialManager
@@ -33,6 +33,9 @@ class DownloadWorker(QThread):
             elif self._scraper_type == "news":
                 from src.materials.scrapers.news_rss import NewsRSSScraper
                 scraper = NewsRSSScraper()
+            elif self._scraper_type == "legal":
+                from src.materials.scrapers.legal_scraper import LegalScraper
+                scraper = LegalScraper()
             else:
                 self.error.emit(f"未知素材源: {self._scraper_type}")
                 return
@@ -101,7 +104,7 @@ class MaterialScreen(QWidget):
         filter_layout.addWidget(self._search_input, stretch=1)
 
         self._category_combo = QComboBox()
-        self._category_combo.addItems(["全部 📋", "诗词 📝", "成语 📖", "文章 📰"])
+        self._category_combo.addItems(["全部 📋", "诗词 📝", "成语 📖", "文章 📰", "法律 ⚖️"])
         self._category_combo.currentIndexChanged.connect(self._filter_materials)
         filter_layout.addWidget(self._category_combo)
 
@@ -121,7 +124,7 @@ class MaterialScreen(QWidget):
         btn_layout.setSpacing(12)
 
         self._download_combo = QComboBox()
-        self._download_combo.addItems(["成语数据集", "古诗文网", "新闻RSS"])
+        self._download_combo.addItems(["成语数据集", "古诗文网", "新闻RSS", "法律文书"])
         self._download_combo.setFixedWidth(150)
         btn_layout.addWidget(self._download_combo)
 
@@ -144,6 +147,25 @@ class MaterialScreen(QWidget):
         """)
         btn_layout.addWidget(download_btn)
 
+        import_btn = QPushButton("📂 导入本地文本")
+        import_btn.clicked.connect(self._import_local_text)
+        import_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_LAVENDER};
+                color: #5B4A4A;
+                border: 2px solid {COLOR_PINK_LIGHT};
+                border-radius: 14px;
+                padding: 8px 20px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_ACCENT};
+                color: #ffffff;
+                border-color: {COLOR_ACCENT};
+            }}
+        """)
+        btn_layout.addWidget(import_btn)
+
         self._progress_bar = QProgressBar()
         self._progress_bar.setFixedWidth(200)
         self._progress_bar.setVisible(False)
@@ -160,7 +182,7 @@ class MaterialScreen(QWidget):
             return
         self._list.clear()
 
-        cat_map = {0: None, 1: "poetry", 2: "idiom", 3: "article"}
+        cat_map = {0: None, 1: "poetry", 2: "idiom", 3: "article", 4: "legal"}
         category = cat_map.get(self._category_combo.currentIndex())
 
         diff_map = {0: None, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
@@ -181,7 +203,7 @@ class MaterialScreen(QWidget):
             author = m.get("author", "")
             diff = m.get("difficulty", "?")
             cat = m.get("category", "")
-            cat_names = {"poetry": "诗词", "idiom": "成语", "article": "文章"}
+            cat_names = {"poetry": "诗词", "idiom": "成语", "article": "文章", "legal": "法律"}
             cat_display = cat_names.get(cat, cat)
 
             text = f"  {title}"
@@ -194,7 +216,7 @@ class MaterialScreen(QWidget):
             self._list.addItem(item)
 
     def _download_materials(self):
-        scraper_map = {"成语数据集": "idiom", "古诗文网": "poetry", "新闻RSS": "news"}
+        scraper_map = {"成语数据集": "idiom", "古诗文网": "poetry", "新闻RSS": "news", "法律文书": "legal"}
         scraper_type = scraper_map.get(self._download_combo.currentText(), "idiom")
 
         self._progress_bar.setVisible(True)
@@ -218,4 +240,81 @@ class MaterialScreen(QWidget):
 
     def _on_download_error(self, error_msg: str):
         self._progress_bar.setVisible(False)
-        QMessageBox.warning(self, "下载失败 😢", f"错误: {error_msg}")
+        QMessageBox.warning(self, "下载失败", f"错误: {error_msg}")
+
+    def _import_local_text(self):
+        """Import local .txt or .json files as legal practice materials."""
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self, "选择要导入的文本文件", "",
+            "文本文件 (*.txt *.json);;所有文件 (*)"
+        )
+        if not file_paths:
+            return
+
+        import hashlib
+        from src.app import App
+        from src.materials.material_store import MaterialStore
+
+        thread_conn = App.instance().db.create_thread_connection()
+        store = MaterialStore(conn=thread_conn)
+        imported = 0
+
+        for file_path in file_paths:
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    text = f.read().strip()
+
+                if file_path.endswith(".json"):
+                    items = __import__("json").loads(text)
+                    if isinstance(items, list):
+                        for item in items:
+                            content = item.get("content", "").strip()
+                            if not content:
+                                continue
+                            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                            mat = {
+                                "title": item.get("title", "导入文本"),
+                                "content": content,
+                                "author": item.get("author", ""),
+                                "category": "legal",
+                                "difficulty": item.get("difficulty", 3),
+                                "tags": item.get("tags", ["法律文书", "导入"]),
+                                "source": "local_import",
+                                "content_hash": content_hash,
+                            }
+                            if store.save(mat):
+                                imported += 1
+                else:
+                    # Plain text: split by double newlines as separate entries
+                    entries = [e.strip() for e in text.split("\n\n") if e.strip()]
+                    if not entries:
+                        entries = [text]
+                    for entry in entries:
+                        lines = entry.split("\n", 1)
+                        title = lines[0][:50] if lines else "导入文本"
+                        content = entry
+                        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+                        mat = {
+                            "title": title,
+                            "content": content,
+                            "author": "",
+                            "category": "legal",
+                            "difficulty": 3,
+                            "tags": ["法律文书", "导入"],
+                            "source": "local_import",
+                            "content_hash": content_hash,
+                        }
+                        if store.save(mat):
+                            imported += 1
+            except Exception as e:
+                print(f"Import error for {file_path}: {e}")
+                continue
+
+        thread_conn.close()
+        self._mm.reload()
+        self._filter_materials()
+
+        if imported > 0:
+            QMessageBox.information(self, "导入完成", f"成功导入 {imported} 条法律文书素材！")
+        else:
+            QMessageBox.warning(self, "导入结果", "未导入任何新素材（可能已存在或文件格式不正确）")

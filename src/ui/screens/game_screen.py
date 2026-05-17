@@ -9,6 +9,7 @@ from src.ui.widgets.input_bar import InputBar
 from src.ui.widgets.text_display import TextDisplayWidget
 from src.ui.widgets.combo_display import ComboDisplay
 from src.ui.widgets.progress_ring import ProgressRing
+from src.ui.widgets.keyboard_rabbit import KeyboardRabbitWidget
 from src.constants import (
     COLOR_PINK_LIGHT, COLOR_ACCENT, COLOR_LAVENDER, COLOR_MINT,
     COLOR_CREAM, COLOR_PEACH, COLOR_SKY, COLOR_HIGHLIGHT, COLOR_ERROR,
@@ -62,6 +63,9 @@ class GameScreen(QWidget):
         self._hud_timer = QTimer(self)
         self._hud_timer.setInterval(200)
         self._hud_timer.timeout.connect(self._update_hud)
+
+        # Keyboard rabbit overlay
+        self._rabbit = None
 
         self._engine.game_over.connect(self._on_game_over)
         self._engine.state_changed.connect(self._on_state_changed)
@@ -137,6 +141,7 @@ class GameScreen(QWidget):
         self._input_bar.composing_changed.connect(self._on_composing)
         if mode_name == GameMode.FALLING_TEXT.value:
             self._input_bar.set_direct_mode(True)
+            self._input_bar.enter_pressed.connect(self._on_enter_pressed)
         layout.addWidget(self._input_bar)
 
         # Pinyin display for falling text mode
@@ -159,6 +164,18 @@ class GameScreen(QWidget):
         # Initialize display content
         if self._display and hasattr(self._mode, 'material'):
             self._display.set_material(self._mode.material)
+
+        # Keyboard rabbit (overlay in bottom-right, above input bar)
+        if self._rabbit:
+            self._rabbit.setParent(None)
+            self._rabbit.deleteLater()
+            self._rabbit = None
+        if App.instance().config.get("show_keyboard_rabbit"):
+            self._rabbit = KeyboardRabbitWidget(self)
+            # Connect InputBar signals for IME-compatible rabbit animation
+            self._input_bar.composing_changed.connect(self._on_composing_rabbit)
+            self._input_bar.text_committed.connect(self._on_text_committed_rabbit)
+            QTimer.singleShot(0, self._position_rabbit)
 
         # Guard: skip start if text is empty
         if hasattr(self._mode, '_text') and not self._mode._text:
@@ -284,6 +301,17 @@ class GameScreen(QWidget):
             self._update_display()
             self._update_hud()
 
+    def _on_enter_pressed(self):
+        """Clear pinyin buffer in falling text mode on Enter."""
+        if self._mode and hasattr(self._mode, '_current_pinyin'):
+            self._mode._current_pinyin = ""
+            self._mode._update_preview()
+            if hasattr(self._mode, '_target_item') and self._mode._target_item:
+                self._mode._target_item.set_falling()
+                self._mode._target_item = None
+                self._mode._retarget()
+            self._update_hud()
+
     def _update_display(self):
         if not self._mode:
             return
@@ -358,13 +386,51 @@ class GameScreen(QWidget):
     def _quit_to_menu(self):
         self._engine.cleanup()
         self._hud_timer.stop()
+        if self._rabbit:
+            self._rabbit.setParent(None)
+            self._rabbit.deleteLater()
+            self._rabbit = None
         if self.navigate_to:
             self.navigate_to("menu")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_rabbit()
+        # Re-fit falling text scene to new viewport size
+        if (self._mode_name == GameMode.FALLING_TEXT.value
+                and self._mode and hasattr(self._mode, '_fit_scene_to_viewport')):
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self._mode._fit_scene_to_viewport)
+
+    def _position_rabbit(self):
+        if self._rabbit:
+            rw, rh = self._rabbit.width(), self._rabbit.height()
+            input_h = self._input_bar.height() if self._input_bar else 50
+            self._rabbit.move(self.width() - rw - 10, self.height() - rh - input_h - 16)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._rabbit:
+            QTimer.singleShot(0, self._position_rabbit)
+
+    def _on_composing_rabbit(self, pinyin: str):
+        """Forward composing pinyin to rabbit for IME-compatible key highlighting."""
+        if self._rabbit:
+            self._rabbit.highlight_pinyin(pinyin)
+
+    def _on_text_committed_rabbit(self, text: str):
+        """After text is committed (space/enter), brief flash then clear highlights."""
+        if self._rabbit:
+            # Highlight the committed text keys briefly
+            self._rabbit.highlight_pinyin(text)
+            QTimer.singleShot(200, self._rabbit.clear_highlights)
 
     def _on_state_changed(self, state):
         if state.value == "ended":
             self._input_bar.setEnabled(False)
             self._hud_timer.stop()
+            if self._rabbit:
+                self._rabbit.hide()
 
     def _on_game_over(self, result: dict):
         self._hud_timer.stop()

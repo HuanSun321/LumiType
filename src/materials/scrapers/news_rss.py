@@ -14,6 +14,15 @@ class NewsRSSScraper(BaseScraper):
         "https://rsshub.app/cls/telegraph",
     ]
 
+    # Keywords indicating paywalled or unauthorized content
+    PAYWALL_KEYWORDS = [
+        "付费", "会员专享", "VIP", "授权转载", "未经授权", "禁止转载",
+        "版权声明", "本文为付费", "开通会员", "付费阅读", "会员专属",
+        "订阅后阅读", "请登录", "开通VIP", "付费内容",
+    ]
+
+    MIN_CONTENT_LENGTH = 30
+
     def name(self) -> str:
         return "新闻RSS"
 
@@ -32,7 +41,11 @@ class NewsRSSScraper(BaseScraper):
                     summary = entry.get("summary", entry.get("description", "")).strip()
                     content = self._clean_html(summary)
 
-                    if not content or len(content) < 20:
+                    if not content or len(content) < self.MIN_CONTENT_LENGTH:
+                        continue
+
+                    # Filter out paywalled / unauthorized content
+                    if self._is_paywalled(title, content):
                         continue
 
                     if len(content) > 500:
@@ -64,6 +77,11 @@ class NewsRSSScraper(BaseScraper):
             text = re.sub(r'<[^>]+>', '', text)
             text = re.sub(r'&\w+;', ' ', text)
             return text
+
+    def _is_paywalled(self, title: str, content: str) -> bool:
+        """Check if article requires payment or authorization."""
+        combined = title + content
+        return any(kw in combined for kw in self.PAYWALL_KEYWORDS)
 
     @staticmethod
     def _truncate_at_boundary(text: str, max_len: int) -> str:

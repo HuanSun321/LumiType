@@ -43,6 +43,14 @@ class ResultsScreen(QWidget):
     def __init__(self):
         super().__init__()
         self._result = {}
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    def keyPressEvent(self, event):
+        # Block space/enter from activating buttons accidentally
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            event.ignore()
+            return
+        super().keyPressEvent(event)
 
     def on_enter(self, data: dict):
         self._result = data
@@ -68,6 +76,7 @@ class ResultsScreen(QWidget):
         back_btn = QPushButton("← 返回主菜单")
         back_btn.setObjectName("back_btn")
         back_btn.setFixedHeight(36)
+        back_btn.setAutoDefault(False)
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self._back_to_menu)
         top_bar.addWidget(back_btn)
@@ -140,6 +149,7 @@ class ResultsScreen(QWidget):
 
         retry_btn = QPushButton("🔄 再来一次")
         retry_btn.setMinimumSize(180, 52)
+        retry_btn.setAutoDefault(False)
         retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         retry_btn.setStyleSheet(f"""
             QPushButton {{
@@ -160,6 +170,7 @@ class ResultsScreen(QWidget):
 
         menu_btn = QPushButton("🏠 返回菜单")
         menu_btn.setMinimumSize(180, 52)
+        menu_btn.setAutoDefault(False)
         menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         menu_btn.setStyleSheet(f"""
             QPushButton {{

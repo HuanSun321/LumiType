@@ -14,6 +14,7 @@ class InputBar(QWidget):
     """
     text_committed = pyqtSignal(str)
     composing_changed = pyqtSignal(str)
+    enter_pressed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -57,6 +58,15 @@ class InputBar(QWidget):
             self._line_edit.setPlaceholderText("✏️ 输入拼音，按空格上屏~")
 
     def eventFilter(self, obj, event):
+        if obj is self._line_edit and event.type() == QEvent.Type.KeyPress:
+            if (self._direct_mode
+                    and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
+                self.enter_pressed.emit()
+                self._clearing = True
+                self._line_edit.clear()
+                self._clearing = False
+                return True
+
         if obj is self._line_edit and event.type() == QEvent.Type.InputMethod:
             preedit = event.preeditString()
             commit = event.commitString()

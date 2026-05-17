@@ -156,6 +156,35 @@ class SettingsScreen(QWidget):
         )
         game_layout.addRow("限时挑战时长:", self._timed_combo)
 
+        # Content ratio
+        ratio_row = QHBoxLayout()
+        self._ratio_slider = QSlider(Qt.Orientation.Horizontal)
+        self._ratio_slider.setRange(10, 100)
+        self._ratio_slider.setValue(self._config.get("content_ratio"))
+        self._ratio_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._ratio_slider.setTickInterval(10)
+        self._ratio_label = QLabel(f"{self._config.get('content_ratio')}%")
+        self._ratio_label.setStyleSheet(f"font-weight: bold; color: {COLOR_ACCENT}; min-width: 36px;")
+        self._ratio_slider.valueChanged.connect(self._on_ratio_changed)
+        ratio_row.addWidget(self._ratio_slider, stretch=1)
+        ratio_row.addWidget(self._ratio_label)
+        game_layout.addRow("内容量比例:", ratio_row)
+
+        # Falling decoration pattern
+        from src.ui.widgets.falling_item import DECO_LABELS
+        self._deco_combo = QComboBox()
+        self._deco_combo.setMinimumWidth(120)
+        for key, label in DECO_LABELS.items():
+            self._deco_combo.addItem(label, key)
+        current_deco = self._config.get("falling_deco")
+        idx = self._deco_combo.findData(current_deco)
+        if idx >= 0:
+            self._deco_combo.setCurrentIndex(idx)
+        self._deco_combo.currentIndexChanged.connect(
+            lambda i: self._config.set("falling_deco", self._deco_combo.itemData(i))
+        )
+        game_layout.addRow("掉落图案:", self._deco_combo)
+
         game_group.setLayout(game_layout)
         layout.addWidget(game_group)
 
@@ -200,6 +229,13 @@ class SettingsScreen(QWidget):
         )
         other_layout.addRow(self._auto_update_check)
 
+        self._rabbit_check = QCheckBox("显示键盘兔子")
+        self._rabbit_check.setChecked(self._config.get("show_keyboard_rabbit"))
+        self._rabbit_check.stateChanged.connect(
+            lambda s: self._config.set("show_keyboard_rabbit", bool(s))
+        )
+        other_layout.addRow(self._rabbit_check)
+
         other_group.setLayout(other_layout)
         layout.addWidget(other_group)
 
@@ -243,6 +279,10 @@ class SettingsScreen(QWidget):
     def _on_speed_changed(self, value):
         self._config.set("falling_speed", value)
         self._speed_label.setText(str(value))
+
+    def _on_ratio_changed(self, value):
+        self._config.set("content_ratio", value)
+        self._ratio_label.setText(f"{value}%")
 
     def _on_sound_toggled(self, state):
         enabled = bool(state)

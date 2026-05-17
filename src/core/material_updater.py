@@ -13,6 +13,7 @@ class MaterialUpdater(QThread):
         "idiom": ("src.materials.scrapers.idiom_fetcher", "IdiomFetcher"),
         "poetry": ("src.materials.scrapers.gushiwen", "GushiwenScraper"),
         "news":  ("src.materials.scrapers.news_rss", "NewsRSSScraper"),
+        "legal": ("src.materials.scrapers.legal_scraper", "LegalScraper"),
     }
 
     def run(self):

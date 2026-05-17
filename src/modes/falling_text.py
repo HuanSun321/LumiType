@@ -2,7 +2,7 @@ import time
 import random
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsView, QWidget, QVBoxLayout
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QPainter
 from src.materials.material_manager import MaterialManager
 from src.ui.widgets.falling_item import FallingCharItem
 from src.modes.base_mode import BaseTypingMode
@@ -13,7 +13,7 @@ class FallingTextMode(BaseTypingMode):
 
     MAX_LIVES = 5
     MAX_ON_SCREEN = 25
-    DANGER_ZONE_Y = 0.85
+    DANGER_ZONE_Y = 0.95
     SCENE_WIDTH = 800
     SCENE_HEIGHT = 600
     MAX_FALL_SPEED = 200
@@ -96,6 +96,9 @@ class FallingTextMode(BaseTypingMode):
     def setup(self, engine):
         super().setup(engine)
         self._last_spawn = time.time()
+        # Fit scene to viewport once widget is shown
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._fit_scene_to_viewport)
 
     def teardown(self):
         self._items.clear()
@@ -113,10 +116,43 @@ class FallingTextMode(BaseTypingMode):
             self._view.setStyleSheet("background: transparent; border: none;")
             self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self._view.setSceneRect(0, 0, self.SCENE_WIDTH, self.SCENE_HEIGHT)
+            self._view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             layout.addWidget(self._view)
 
         return self._container
+
+    def _fit_scene_to_viewport(self):
+        """Scale scene so full height is visible, draw danger zone line."""
+        if not self._view:
+            return
+        vw = self._view.viewport().width()
+        vh = self._view.viewport().height()
+        if vw <= 0 or vh <= 0:
+            return
+        scale = vh / self.SCENE_HEIGHT
+        from PyQt6.QtGui import QTransform
+        self._view.setTransform(QTransform().scale(scale, scale))
+        self._view.setSceneRect(0, 0, self.SCENE_WIDTH, self.SCENE_HEIGHT)
+        self._draw_danger_line()
+
+    def _draw_danger_line(self):
+        """Draw a dashed red line at the danger zone so the player can see it."""
+        if not self._scene:
+            return
+        # Remove old danger line items
+        for it in list(self._scene.items()):
+            if getattr(it, '_is_danger_line', False):
+                self._scene.removeItem(it)
+        from PyQt6.QtWidgets import QGraphicsLineItem
+        from PyQt6.QtGui import QPen, QColor
+        from PyQt6.QtCore import Qt
+        danger_y = self.SCENE_HEIGHT * 0.95
+        line = QGraphicsLineItem(0, danger_y, self.SCENE_WIDTH, danger_y)
+        pen = QPen(QColor(255, 100, 100, 150), 2, Qt.PenStyle.DashLine)
+        line.setPen(pen)
+        line._is_danger_line = True
+        line.setZValue(-1)
+        self._scene.addItem(line)
 
     def process_input(self, text: str):
         """In direct mode, each character is an English letter. Accumulate pinyin."""
@@ -187,10 +223,14 @@ class FallingTextMode(BaseTypingMode):
         return best
 
     def _retarget(self):
-        """Set the lowest active item as target."""
+        """Set the lowest active item as target. Clear ALL other items' targeted state."""
         best = self._find_lowest_active()
-        if self._target_item and self._target_item is not best:
-            self._target_item.set_falling()
+        if best is self._target_item:
+            return  # no change needed
+        # Clear ALL targeted states first
+        for item in self._items:
+            if item.state == FallingCharItem.STATE_TARGETED and item is not best:
+                item.set_falling()
         self._target_item = best
         if best:
             best.set_targeted()
@@ -228,16 +268,22 @@ class FallingTextMode(BaseTypingMode):
             self._spawn_interval = max(0.3, self._base_spawn_interval() - elapsed * 0.005)
             self._fall_speed = min(self._base_fall_speed() + elapsed * 1.5, self.MAX_FALL_SPEED)
 
-        view_h = self._view.viewport().height() if self._view and self._view.viewport().height() > 0 else self.SCENE_HEIGHT
-        danger_y = view_h * self.DANGER_ZONE_Y
+        # Danger zone: 95% of visible viewport height, converted to scene coords
+        if self._view and self._view.viewport().height() > 0:
+            from PyQt6.QtCore import QPoint
+            vp_y = int(self._view.viewport().height() * 0.95)
+            danger_y = self._view.mapToScene(QPoint(0, vp_y)).y()
+        else:
+            danger_y = self.SCENE_HEIGHT * 0.95
 
         to_remove = set()
-        for item in self._items:
+        for item in list(self._items):
             alive = item.advance(dt)
             if not alive:
                 to_remove.add(item)
             elif item.state != FallingCharItem.STATE_ELIMINATED:
                 if item.pos().y() >= danger_y:
+                    # Crossed danger line —扣血 once, then eliminate immediately
                     self._lives -= 1
                     item.eliminate()
                     if self._target_item is item:
@@ -262,8 +308,20 @@ class FallingTextMode(BaseTypingMode):
             return
 
         char = random.choice(self._char_pool)
-        spawn_width = self._view.viewport().width() if self._view and self._view.viewport().width() > 0 else self.SCENE_WIDTH
-        x = random.randint(20, max(20, spawn_width - 60))
+        # Use scene coordinates for spawn position, clamped to visible area
+        if self._view and self._view.viewport().width() > 0:
+            # Convert viewport edges to scene coords to get visible x range
+            from PyQt6.QtCore import QPoint
+            left_scene = self._view.mapToScene(QPoint(0, 0)).x()
+            right_scene = self._view.mapToScene(QPoint(self._view.viewport().width(), 0)).x()
+            x_min = max(10, left_scene + 20)
+            x_max = min(self.SCENE_WIDTH - 60, right_scene - 60)
+        else:
+            x_min = 20
+            x_max = self.SCENE_WIDTH - 60
+        if x_max <= x_min:
+            x_max = x_min + 40
+        x = random.randint(int(x_min), int(x_max))
         y = -50
 
         readings = self._pinyin_map.get(char, [""])

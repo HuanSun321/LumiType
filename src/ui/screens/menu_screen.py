@@ -1,9 +1,10 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
-    QComboBox, QDialog, QDialogButtonBox, QSlider,
+    QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from src.core.game_state import GameMode
+from src.app import App
 from src.constants import (
     COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_LAVENDER, COLOR_MINT,
     COLOR_CREAM, COLOR_PEACH, COLOR_SKY,
@@ -59,99 +60,6 @@ class ModeCard(QFrame):
         super().mousePressEvent(event)
 
 
-class StartGameDialog(QDialog):
-    """Popup to choose content amount before starting a game."""
-
-    def __init__(self, mode_name: str, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("开始练习")
-        self.setFixedSize(380, 200)
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {COLOR_CREAM};
-                border: 2px dashed {COLOR_PINK_LIGHT};
-                border-radius: 16px;
-            }}
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(14)
-        layout.setContentsMargins(24, 20, 24, 20)
-
-        mode_labels = {
-            GameMode.FOLLOW_TYPING.value: "跟打练习",
-            GameMode.FALLING_TEXT.value: "掉落消除",
-            GameMode.TIMED_CHALLENGE.value: "限时挑战",
-        }
-        title = QLabel(f"📖 {mode_labels.get(mode_name, mode_name)}")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"font-size: 20px; font-weight: bold; color: {COLOR_ACCENT}; background: transparent; border: none;")
-        layout.addWidget(title)
-
-        # Ratio selection
-        ratio_label = QLabel("选择内容量：")
-        ratio_label.setStyleSheet("font-size: 14px; color: #5B4A4A; background: transparent; border: none;")
-        layout.addWidget(ratio_label)
-
-        slider_row = QHBoxLayout()
-        self._slider = QSlider(Qt.Orientation.Horizontal)
-        self._slider.setRange(10, 100)
-        self._slider.setSingleStep(10)
-        self._slider.setValue(100)
-        self._slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self._slider.setTickInterval(10)
-        self._slider.valueChanged.connect(self._on_slider_changed)
-        slider_row.addWidget(self._slider, stretch=1)
-
-        self._ratio_label = QLabel("100%")
-        self._ratio_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {COLOR_ACCENT}; min-width: 48px; background: transparent; border: none;")
-        slider_row.addWidget(self._ratio_label)
-        layout.addLayout(slider_row)
-
-        # Buttons
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        cancel_btn = QPushButton("取消")
-        cancel_btn.setFixedWidth(80)
-        cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: #FFE0E0;
-                color: #5B4A4A;
-                border: 2px solid {COLOR_PINK_LIGHT};
-                border-radius: 12px;
-                padding: 6px 16px;
-            }}
-            QPushButton:hover {{ background-color: #FFD1DC; }}
-        """)
-        cancel_btn.clicked.connect(self.reject)
-        btn_row.addWidget(cancel_btn)
-
-        start_btn = QPushButton("开始！")
-        start_btn.setObjectName("primary")
-        start_btn.setFixedWidth(100)
-        start_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLOR_ACCENT};
-                color: #ffffff;
-                border: 2px solid {COLOR_ACCENT};
-                border-radius: 14px;
-                padding: 6px 20px;
-                font-size: 15px;
-                font-weight: bold;
-            }}
-            QPushButton:hover {{ background-color: #ff7096; }}
-        """)
-        start_btn.clicked.connect(self.accept)
-        btn_row.addWidget(start_btn)
-        layout.addLayout(btn_row)
-
-    def _on_slider_changed(self, value):
-        self._ratio_label.setText(f"{value}%")
-
-    def get_ratio(self) -> float:
-        return self._slider.value() / 100.0
-
-
 class MenuScreen(QWidget):
     navigate_to = None
 
@@ -186,7 +94,7 @@ class MenuScreen(QWidget):
         cat_row.addWidget(cat_label)
 
         self._cat_combo = QComboBox()
-        self._cat_combo.addItems(["全部", "诗词", "成语", "文章", "新闻"])
+        self._cat_combo.addItems(["全部", "诗词", "成语", "文章", "新闻", "法律"])
         self._cat_combo.setFixedWidth(130)
         self._cat_combo.setStyleSheet(f"""
             QComboBox {{
@@ -266,20 +174,13 @@ class MenuScreen(QWidget):
         layout.addLayout(nav_layout)
 
     def _get_category(self) -> str | None:
-        cat_map = {"全部": None, "诗词": "poetry", "成语": "idiom", "文章": "article", "新闻": "news"}
+        cat_map = {"全部": None, "诗词": "poetry", "成语": "idiom", "文章": "article", "新闻": "news", "法律": "legal"}
         return cat_map.get(self._cat_combo.currentText())
 
     def _on_mode_selected(self, mode: str):
         category = self._get_category()
-        # Only show ratio dialog for article/news category
-        if category in ("article", "news"):
-            dialog = StartGameDialog(mode, parent=self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                ratio = dialog.get_ratio()
-            else:
-                return
-        else:
-            ratio = 1.0
+        config_ratio = App.instance().config.get("content_ratio")
+        ratio = config_ratio / 100.0 if config_ratio else 1.0
 
         if self.navigate_to:
             self.navigate_to("game", {

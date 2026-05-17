@@ -18,6 +18,7 @@ class TextDisplayWidget(QWidget):
         self._cursor_pos = 0
         self._title = ""
         self._author = ""
+        self._category = ""
 
         config = App.instance().config
         font_family = config.get("font_family") or "Microsoft YaHei"
@@ -28,7 +29,10 @@ class TextDisplayWidget(QWidget):
         self._margin = 24
         self._viewport_y = 0
 
-        # Cached layout: list of (char_index, x, y) for each character
+        # Layout mode: 'poetry' | 'prose'
+        self._layout_mode = "prose"
+
+        # Cached layout: list of (char_index, x, y)
         self._char_positions: list[tuple[int, float, float]] = []
         self._total_height = 0
 
@@ -36,13 +40,29 @@ class TextDisplayWidget(QWidget):
         self._title = material.get("title", "")
         self._author = material.get("author", "")
         self._text = material.get("content", "")
+        self._category = material.get("category", "")
         self._char_states = [self.CHAR_STATE_PENDING] * len(self._text)
         self._cursor_pos = 0
         self._viewport_y = 0
         if self._char_states:
             self._char_states[0] = self.CHAR_STATE_CURRENT
+        self._detect_mode()
         self._recalc_layout()
         self.update()
+
+    def _detect_mode(self):
+        """Detect if text is poetry (short lines with \\n) or prose."""
+        # If material explicitly tagged as poetry, force poetry mode
+        if self._category in ("poetry", "poem"):
+            self._layout_mode = "poetry"
+            return
+        lines = self._text.split('\n')
+        if len(lines) <= 1:
+            self._layout_mode = "prose"
+            return
+        # Poetry: most lines are short (≤10 chars, typical 五言/七言)
+        avg_len = sum(len(l) for l in lines) / len(lines)
+        self._layout_mode = "poetry" if avg_len <= 10 else "prose"
 
     @property
     def title(self) -> str:
@@ -62,40 +82,97 @@ class TextDisplayWidget(QWidget):
         self._recalc_layout()
 
     def _recalc_layout(self):
-        """Cache character positions. Only recalculated on text change or resize."""
         fm = QFontMetrics(self._font)
+        max_x = self.width() - self._margin
+        if max_x <= 0:
+            max_x = 800
+
+        if self._layout_mode == "poetry":
+            self._recalc_poetry(fm, self._margin, max_x)
+        else:
+            self._recalc_prose(fm, self._margin, max_x)
+
+    def _recalc_poetry(self, fm, y, max_x):
+        """Center each line of poetry both horizontally and vertically."""
+        self._char_positions = []
+        lines = self._text.split('\n')
+
+        # Calculate total content height for vertical centering
+        title_height = 44 if self._title else 0
+        content_height = len(lines) * self._line_height
+        total_content = title_height + content_height
+        widget_h = self.height() if self.height() > 100 else 600
+        vertical_offset = max(0, (widget_h - total_content) / 2)
+
+        y = vertical_offset
+        if self._title:
+            y += title_height
+
+        char_idx = 0
+        for line_idx, line in enumerate(lines):
+            line_width = sum(fm.horizontalAdvance(ch) for ch in line)
+            line_x = self._margin + max(0, (max_x - self._margin * 2 - line_width) / 2)
+            x = line_x
+            for ch in line:
+                self._char_positions.append((char_idx, x, y))
+                x += fm.horizontalAdvance(ch)
+                char_idx += 1
+            char_idx += 1  # skip \n
+            y += self._line_height
+
+        self._total_height = max(widget_h, y + self._line_height)
+        self._poetry_vertically_centered = total_content <= widget_h
+
+    def _recalc_prose(self, fm, y, max_x):
+        """Prose: indent first line of each paragraph, extra spacing between paragraphs."""
+        self._char_positions = []
+        indent_width = fm.horizontalAdvance('　') * 2  # 2 full-width spaces
+        paragraph_gap = self._line_height * 0.6  # extra space between paragraphs
+        lines = self._text.split('\n')
+
+        # If the text has no newlines at all (single paragraph), still indent first line
+        is_single_para = len(lines) <= 1
+
+        char_idx = 0
+        # Start with title offset
         y = self._margin
         if self._title:
             y += 44
-        x = self._margin
-        max_x = self.width() - self._margin
-        if max_x <= 0:
-            max_x = 800  # fallback before widget is shown
 
-        self._char_positions = []
-        for i, ch in enumerate(self._text):
-            if ch == '\n':
-                self._char_positions.append((i, x, y))
-                x = self._margin
-                y += self._line_height
-                continue
-            char_width = fm.horizontalAdvance(ch)
-            if x + char_width > max_x:
-                x = self._margin
-                y += self._line_height
-            self._char_positions.append((i, x, y))
-            x += char_width
+        for line_idx, line in enumerate(lines):
+            # First line of each paragraph gets indent
+            if line_idx == 0:
+                x = self._margin + indent_width
+            else:
+                x = self._margin + indent_width
+
+            for ch in line:
+                ch_w = fm.horizontalAdvance(ch)
+                if x + ch_w > max_x:
+                    x = self._margin  # wrap: no indent on continuation lines
+                    y += self._line_height
+                self._char_positions.append((char_idx, x, y))
+                x += ch_w
+                char_idx += 1
+            char_idx += 1  # skip \n
+            y += self._line_height
+            # Extra gap between paragraphs (not after last)
+            if line_idx < len(lines) - 1:
+                y += paragraph_gap
 
         self._total_height = y + self._line_height
 
     def _cursor_y(self) -> float:
-        """Get cursor Y from cached positions. O(1)."""
         if 0 <= self._cursor_pos < len(self._char_positions):
             return self._char_positions[self._cursor_pos][2]
         return self._margin
 
     def _update_viewport(self):
         if self.height() <= 0:
+            return
+        # Disable scrolling when poetry fits vertically
+        if getattr(self, '_poetry_vertically_centered', False):
+            self._viewport_y = 0
             return
         cursor_y = self._cursor_y()
         h = self.height()
@@ -113,10 +190,18 @@ class TextDisplayWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
         painter.fillRect(self.rect(), QColor("#FFF8F0"))
 
         y = self._margin - self._viewport_y
+
+        # For vertically centered poetry, compute title position from char_positions
+        if self._layout_mode == "poetry" and getattr(self, '_poetry_vertically_centered', False):
+            if self._title and self._char_positions:
+                # Title sits above the first character line
+                first_char_y = self._char_positions[0][2]
+                y = first_char_y - 44 - self._viewport_y
+            elif self._title:
+                y = self._margin - self._viewport_y
 
         if self._title:
             painter.setFont(self._title_font)
@@ -124,7 +209,10 @@ class TextDisplayWidget(QWidget):
             title_text = f"「{self._title}」"
             if self._author:
                 title_text += f" — {self._author}"
-            painter.drawText(self._margin, y + 22, title_text)
+            # Center title
+            title_width = QFontMetrics(self._title_font).horizontalAdvance(title_text)
+            title_x = self._margin + max(0, (self.width() - self._margin * 2 - title_width) / 2)
+            painter.drawText(int(title_x), int(y + 22), title_text)
             y += 44
 
         painter.setFont(self._font)
@@ -139,9 +227,6 @@ class TextDisplayWidget(QWidget):
 
         for idx, (i, cx, cy) in enumerate(self._char_positions):
             ch = self._text[i]
-            if ch == '\n':
-                continue
-
             draw_y = cy - self._viewport_y
             if draw_y < -self._line_height or draw_y > self.height() + self._line_height:
                 continue

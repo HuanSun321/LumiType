@@ -20,6 +20,9 @@ class ConfigManager:
         "window_height": WINDOW_HEIGHT,
         "fullscreen_mode": True,
         "auto_update_materials": True,
+        "falling_deco": "random",
+        "content_ratio": 100,
+        "show_keyboard_rabbit": True,
     }
 
     def __init__(self):
