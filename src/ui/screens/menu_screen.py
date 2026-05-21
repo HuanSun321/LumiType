@@ -84,6 +84,27 @@ class MenuScreen(QWidget):
 
         layout.addSpacing(4)
 
+        today_btn = QPushButton("🌱 今日练习")
+        today_btn.setFixedSize(220, 50)
+        today_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        today_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_ACCENT};
+                color: #ffffff;
+                border: 2px solid {COLOR_ACCENT};
+                border-radius: 18px;
+                padding: 8px 24px;
+                font-size: 18px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: #ff7096;
+                border-color: #ff7096;
+            }}
+        """)
+        today_btn.clicked.connect(self._start_today_training)
+        layout.addWidget(today_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
         # Category selector
         cat_row = QHBoxLayout()
         cat_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -188,6 +209,25 @@ class MenuScreen(QWidget):
                 "category": category,
                 "ratio": ratio,
             })
+
+    def _start_today_training(self):
+        category = self._get_category()
+        config_ratio = App.instance().config.get("content_ratio")
+        ratio = config_ratio / 100.0 if config_ratio else 1.0
+        review_material = App.instance().db.build_review_material()
+
+        data = {
+            "mode": GameMode.FOLLOW_TYPING.value,
+            "category": category,
+            "ratio": ratio,
+        }
+        if review_material:
+            data["material"] = review_material
+            data["category"] = None
+            data["ratio"] = 1.0
+
+        if self.navigate_to:
+            self.navigate_to("game", data)
 
     def on_enter(self, data: dict):
         pass

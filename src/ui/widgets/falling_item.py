@@ -39,7 +39,6 @@ class FallingCharItem(QGraphicsObject):
             font_family = config.get("font_family") or "Microsoft YaHei"
             font_size = config.get("font_size") or DEFAULT_FONT_SIZE
             font = QFont(font_family, font_size)
-        super().__init__()
         self._char = char
         self._speed = speed
         self._state = self.STATE_FALLING
@@ -52,14 +51,11 @@ class FallingCharItem(QGraphicsObject):
         self._char_height = fm.height()
         self._font = font
 
-        # Pinyin font (smaller)
         self._pinyin_font = QFont(font.family(), max(font.pointSize() - 8, 9))
         self._pinyin_fm = QFontMetrics(self._pinyin_font)
 
-        # Width: take the wider of character or pinyin + padding
         pinyin_w = self._pinyin_fm.horizontalAdvance(pinyin) if pinyin else 0
         self._item_width = max(self._char_width, pinyin_w) + 32
-        # Increased pinyin area height: 30px instead of 20px for descenders (g, p, q)
         self._item_height = self._char_height + 38 if pinyin else self._char_height + 20
 
         # Pick decoration type from config
@@ -70,8 +66,9 @@ class FallingCharItem(QGraphicsObject):
         else:
             self._deco_type = deco_setting if deco_setting in DECO_TYPES else "star"
 
-        # Pre-compute decoration positions (relative to bounding rect)
+        # Pre-compute decoration positions and rotations (fixed per item)
         self._deco_positions = self._compute_deco_positions()
+        self._deco_rotations = [random.uniform(-15, 15) for _ in self._deco_positions]
 
         self.setPos(x, y)
 
@@ -116,7 +113,9 @@ class FallingCharItem(QGraphicsObject):
         return True
 
     def boundingRect(self) -> QRectF:
-        return QRectF(0, 0, self._item_width, self._item_height)
+        # Extra padding for decoration rotation overshoot
+        pad = 8
+        return QRectF(-pad, -pad, self._item_width + pad * 2, self._item_height + pad * 2)
 
     def _compute_deco_positions(self) -> list[tuple[float, float]]:
         """Return (x, y) positions for small decorations around the bubble corners."""
@@ -192,8 +191,7 @@ class FallingCharItem(QGraphicsObject):
         for i, (dx, dy) in enumerate(self._deco_positions):
             painter.save()
             painter.translate(dx, dy)
-            # Slight rotation for hand-drawn feel
-            painter.rotate(random.uniform(-15, 15))
+            painter.rotate(self._deco_rotations[i])
 
             if self._deco_type == "star":
                 self._paint_star(painter, deco_color)

@@ -1,69 +1,59 @@
-from abc import ABC, abstractmethod
-from typing import Generator
-import unicodedata
+import logging
+import time
+
+import requests
+
+# Default delay between requests (seconds) to avoid being blocked
+REQUEST_DELAY = 1.0
+# Default retry settings
+MAX_RETRIES = 3
+RETRY_BACKOFF = 2.0  # exponential backoff factor
 
 
-class BaseScraper(ABC):
-    """Base class for material scrapers."""
+class BaseScraper:
+    """Base class for all material scrapers."""
 
-    @abstractmethod
-    def name(self) -> str:
-        ...
+    name: str = ""
+    description: str = ""
 
-    @abstractmethod
-    def category(self) -> str:
-        ...
+    def __init__(self):
+        self._request_delay = REQUEST_DELAY
+        self._max_retries = MAX_RETRIES
+        self._last_request_time = 0.0
 
-    @abstractmethod
-    def fetch(self, count: int = 20) -> Generator[dict, None, None]:
-        ...
+    def _throttled_get(self, url: str, timeout: int = 15, headers: dict | None = None, **kwargs) -> requests.Response:
+        """Make a GET request with rate limiting and retry with exponential backoff."""
+        # Enforce minimum delay between requests
+        elapsed = time.monotonic() - self._last_request_time
+        if elapsed < self._request_delay:
+            time.sleep(self._request_delay - elapsed)
+
+        last_exc = None
+        for attempt in range(self._max_retries):
+            try:
+                self._last_request_time = time.monotonic()
+                resp = requests.get(url, timeout=timeout, headers=headers, **kwargs)
+                resp.raise_for_status()
+                return resp
+            except requests.RequestException as e:
+                last_exc = e
+                if attempt < self._max_retries - 1:
+                    wait = RETRY_BACKOFF ** attempt
+                    logging.warning(
+                        "%s: request failed (attempt %d/%d), retrying in %.1fs: %s",
+                        self.name or type(self).__name__, attempt + 1, self._max_retries, wait, e,
+                    )
+                    time.sleep(wait)
+        raise last_exc  # type: ignore[misc]
+
+    def fetch(self) -> list[dict]:
+        """Fetch materials. Must be implemented by subclasses."""
+        raise NotImplementedError
 
     def is_available(self) -> bool:
-        import requests
+        """Check if the data source is reachable."""
         try:
-            resp = requests.head(self._base_url(), timeout=5)
+            resp = requests.head(self.BASE_URL, timeout=10)  # type: ignore[attr-defined]
             return resp.status_code < 400
-        except Exception:
+        except requests.RequestException:
             return False
-
-    @abstractmethod
-    def _base_url(self) -> str:
-        ...
-
-    @staticmethod
-    def estimate_difficulty(content: str) -> int:
-        """Estimate difficulty based on content length and character rarity."""
-        if not content:
-            return 1
-        length = len(content)
-        # Count rare CJK characters (Extension B-F, compatibility)
-        rare_count = 0
-        for ch in content:
-            cp = ord(ch)
-            if (0x20000 <= cp <= 0x3FFFF or    # CJK Extensions B-F
-                0xF900 <= cp <= 0xFAFF or       # CJK Compatibility Ideographs
-                0xFE30 <= cp <= 0xFE4F):        # CJK Compatibility Forms
-                rare_count += 1
-        rare_ratio = rare_count / max(length, 1)
-
-        # Length factor
-        if length <= 20:
-            length_score = 1
-        elif length <= 50:
-            length_score = 2
-        elif length <= 100:
-            length_score = 3
-        elif length <= 200:
-            length_score = 4
-        else:
-            length_score = 5
-
-        # Rarity factor
-        if rare_ratio > 0.3:
-            rarity_bonus = 2
-        elif rare_ratio > 0.1:
-            rarity_bonus = 1
-        else:
-            rarity_bonus = 0
-
-        return min(6, max(1, length_score + rarity_bonus))

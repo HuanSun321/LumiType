@@ -12,20 +12,20 @@ class TitleBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedHeight(40)
+        self.setFixedHeight(44)
         self.setStyleSheet(f"""
             QWidget {{
                 background-color: {COLOR_PINK_LIGHT};
-                border-top-left-radius: 14px;
-                border-top-right-radius: 14px;
+                border-top-left-radius: 16px;
+                border-top-right-radius: 16px;
             }}
         """)
         self._drag_pos = None
         self._fullscreen = False
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 0, 6, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(16, 0, 8, 0)
+        layout.setSpacing(6)
 
         # Icon label — use 图标.png if available, else fallback to 雅 text
         icon_path = os.path.join(
@@ -67,22 +67,23 @@ class TitleBar(QWidget):
 
         btn_style = f"""
             QPushButton {{
-                background: transparent;
-                border: none;
-                border-radius: 6px;
+                background-color: rgba(255,255,255,0.20);
+                border: 1px dashed rgba(255,255,255,0.55);
+                border-radius: 8px;
                 font-size: 14px;
                 padding: 2px 8px;
                 color: {COLOR_TEXT_PRIMARY};
             }}
             QPushButton:hover {{
-                background-color: rgba(255,255,255,0.4);
+                background-color: rgba(255,255,255,0.55);
+                border-color: {COLOR_ACCENT};
             }}
         """
         close_style = f"""
             QPushButton {{
-                background: transparent;
-                border: none;
-                border-radius: 6px;
+                background-color: rgba(255,255,255,0.20);
+                border: 1px dashed rgba(255,255,255,0.55);
+                border-radius: 8px;
                 font-size: 14px;
                 padding: 2px 8px;
                 color: {COLOR_TEXT_PRIMARY};
@@ -94,19 +95,19 @@ class TitleBar(QWidget):
         """
 
         self._min_btn = QPushButton("─")
-        self._min_btn.setFixedSize(32, 28)
+        self._min_btn.setFixedSize(34, 28)
         self._min_btn.setStyleSheet(btn_style)
         self._min_btn.clicked.connect(self.minimize_clicked.emit)
         layout.addWidget(self._min_btn)
 
         self._max_btn = QPushButton("□")
-        self._max_btn.setFixedSize(32, 28)
+        self._max_btn.setFixedSize(34, 28)
         self._max_btn.setStyleSheet(btn_style)
         self._max_btn.clicked.connect(self.maximize_clicked.emit)
         layout.addWidget(self._max_btn)
 
         self._close_btn = QPushButton("✕")
-        self._close_btn.setFixedSize(32, 28)
+        self._close_btn.setFixedSize(34, 28)
         self._close_btn.setStyleSheet(close_style)
         self._close_btn.clicked.connect(self.close_clicked.emit)
         layout.addWidget(self._close_btn)
@@ -135,7 +136,6 @@ class TitleBar(QWidget):
 
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
-        self._fullscreen = False
 
     def mouseDoubleClickEvent(self, event):
         if self._fullscreen:

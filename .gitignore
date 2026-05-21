@@ -1,22 +1,48 @@
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
+*$py.class
 *.egg-info/
+*.egg
+*.whl
 dist/
 build/
-*.spec.bak
 
-# Data
+# Virtual environments
+.venv/
+venv/
+env/
+
+# SQLite
 *.db
 *.db-journal
 *.db-wal
+*.db-shm
+
+# Logs
+*.log
+crash.log
 
 # IDE
 .vscode/
 .idea/
 *.swp
+*.swo
+
+# Claude Code
+.claude/
+
+# PyInstaller
+*.spec.bak
+
+# Generated QA / icon artifacts
+qa_screenshots/
+*.ico
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Temp
+*.tmp
+*.bak

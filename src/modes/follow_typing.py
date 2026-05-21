@@ -1,66 +1,41 @@
-import time
-from src.core.statistics import StatsCalculator
+"""Follow-typing mode: user types the displayed text sequentially."""
+from src.core.game_state import GameMode
 from src.materials.material_manager import MaterialManager
-from src.modes.base_mode import BaseTypingMode
+from src.modes.base_mode import BaseSequentialTypingMode
 
 
-class FollowTypingMode(BaseTypingMode):
-    def __init__(self, category: str = None, ratio: float = 1.0):
+class FollowTypingMode(BaseSequentialTypingMode):
+    mode = GameMode.FOLLOW_TYPING
+
+    def __init__(self, category: str = None, ratio: float = 1.0, material: dict | None = None):
         super().__init__()
-        mm = MaterialManager.instance()
-        if category == "idiom":
-            self._material, self._text = self.load_idiom_batch(mm)
+        if material:
+            self._material = dict(material)
+            text = self._material.get("content", "")
         else:
-            self._material = mm.get_random_material(category=category)
-            self._text = self._material.get("content", "")
-        if ratio < 1.0 and self._text and category in ("article", "news"):
-            cut = max(1, int(len(self._text) * ratio))
-            self._text = self._text[:cut]
+            mm = MaterialManager.instance()
+            if category == "idiom":
+                self._material, text = self.load_idiom_batch(mm)
+            else:
+                self._material = mm.get_random_material(category=category)
+                text = self._material.get("content", "")
+        if ratio < 1.0 and text and (category or self._material.get("category")) in ("article", "news"):
+            text = text[:max(1, int(len(text) * ratio))]
+        self.set_text(text.strip())
 
-        # Guard: strip leading/trailing whitespace and newlines
-        self._text = self._text.strip()
-
-        self._cursor = 0
-        self._char_states: list[int] = []
-        self._init_states()
-
-    def _init_states(self):
-        self._char_states = [0] * len(self._text)
-        if self._char_states:
-            self._char_states[0] = 3  # CURRENT
+    def start(self):
+        self.set_text(self._text)
+        self._current_index = 0
+        self._correct_count = 0
+        self._total_typed = 0
+        self._current_pinyin = ""
 
     @property
     def material(self) -> dict:
         return self._material
 
-    @property
-    def cursor_position(self) -> int:
-        return self._cursor
-
-    @property
-    def char_states(self) -> list[int]:
-        return list(self._char_states)
-
-    def process_input(self, text: str):
-        if self._cursor >= len(self._text) or not text:
-            return
-
-        for ch in text:
-            if self._cursor >= len(self._text):
-                break
-
-            expected = self._text[self._cursor]
-            is_correct = ch == expected
-            self._record_char(is_correct)
-            self._char_states[self._cursor] = 1 if is_correct else 2
-
-            self._cursor += 1
-            if self._cursor < len(self._text):
-                self._char_states[self._cursor] = 3  # CURRENT
-
-        if self._cursor >= len(self._text):
-            if self._engine:
-                self._engine.end()
-
-    def calculate_result(self) -> dict:
+    def get_result(self) -> dict:
         return self._base_result("follow", self._material.get("title", ""))
+
+    def is_game_over(self) -> bool:
+        return self._current_index >= len(self._text)

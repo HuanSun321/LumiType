@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QSlider, QCheckBox, QSpinBox, QGroupBox, QFormLayout,
     QScrollArea, QFrame,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from src.app import App
 from src.constants import (
     COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_LAVENDER, COLOR_MINT,
@@ -35,6 +35,11 @@ class SettingsScreen(QWidget):
         super().__init__()
         self._config = App.instance().config
         self._built = False
+        self._rabbit_preview = None
+        self._rabbit_preview_timer = QTimer(self)
+        self._rabbit_preview_timer.setSingleShot(True)
+        self._rabbit_preview_timer.setInterval(1400)
+        self._rabbit_preview_timer.timeout.connect(self._hide_rabbit_preview)
 
     def on_enter(self, data: dict):
         if not self._built:
@@ -236,6 +241,19 @@ class SettingsScreen(QWidget):
         )
         other_layout.addRow(self._rabbit_check)
 
+        rabbit_size_row = QHBoxLayout()
+        self._rabbit_size_slider = QSlider(Qt.Orientation.Horizontal)
+        self._rabbit_size_slider.setRange(60, 140)
+        self._rabbit_size_slider.setValue(self._config.get("keyboard_rabbit_scale"))
+        self._rabbit_size_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self._rabbit_size_slider.setTickInterval(20)
+        self._rabbit_size_label = QLabel(f"{self._rabbit_size_slider.value()}%")
+        self._rabbit_size_label.setStyleSheet(f"font-weight: bold; color: {COLOR_ACCENT}; min-width: 42px;")
+        self._rabbit_size_slider.valueChanged.connect(self._on_rabbit_size_changed)
+        rabbit_size_row.addWidget(self._rabbit_size_slider, stretch=1)
+        rabbit_size_row.addWidget(self._rabbit_size_label)
+        other_layout.addRow("键盘兔大小:", rabbit_size_row)
+
         other_group.setLayout(other_layout)
         layout.addWidget(other_group)
 
@@ -294,6 +312,39 @@ class SettingsScreen(QWidget):
         self._config.set("sound_volume", vol)
         App.instance().sound.set_volume(vol)
         self._volume_label.setText(f"{value}%")
+
+    def _on_rabbit_size_changed(self, value):
+        self._config.set("keyboard_rabbit_scale", value)
+        self._rabbit_size_label.setText(f"{value}%")
+        self._show_rabbit_preview(value)
+
+    def _show_rabbit_preview(self, value):
+        from src.ui.widgets.keyboard_rabbit import KeyboardRabbitWidget
+        if self._rabbit_preview is None:
+            self._rabbit_preview = KeyboardRabbitWidget(self)
+            self._rabbit_preview.set_preview_opacity(0.42)
+        self._rabbit_preview.set_scale_percent(value)
+        self._position_rabbit_preview()
+        self._rabbit_preview.show()
+        self._rabbit_preview.raise_()
+        self._rabbit_preview_timer.start()
+
+    def _hide_rabbit_preview(self):
+        if self._rabbit_preview:
+            self._rabbit_preview.hide()
+
+    def _position_rabbit_preview(self):
+        if not self._rabbit_preview:
+            return
+        margin = 24
+        self._rabbit_preview.move(
+            max(margin, self.width() - self._rabbit_preview.width() - margin),
+            max(margin, self.height() - self._rabbit_preview.height() - margin),
+        )
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_rabbit_preview()
 
     def _on_fullscreen_toggled(self, state):
         fullscreen = bool(state)

@@ -1,3 +1,5 @@
+import logging
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QListWidget, QListWidgetItem, QComboBox, QLineEdit,
@@ -104,7 +106,7 @@ class MaterialScreen(QWidget):
         filter_layout.addWidget(self._search_input, stretch=1)
 
         self._category_combo = QComboBox()
-        self._category_combo.addItems(["全部 📋", "诗词 📝", "成语 📖", "文章 📰", "法律 ⚖️"])
+        self._category_combo.addItems(["全部 📋", "诗词 📝", "成语 📖", "文章 📰", "法律 ⚖️", "最近练过 🕘"])
         self._category_combo.currentIndexChanged.connect(self._filter_materials)
         filter_layout.addWidget(self._category_combo)
 
@@ -112,6 +114,11 @@ class MaterialScreen(QWidget):
         self._diff_combo.addItems(["全部", "HSK 1 🌱", "HSK 2 🌿", "HSK 3 🌳", "HSK 4 🎋", "HSK 5 🌲", "HSK 6 🏔️"])
         self._diff_combo.currentIndexChanged.connect(self._filter_materials)
         filter_layout.addWidget(self._diff_combo)
+
+        self._length_combo = QComboBox()
+        self._length_combo.addItems(["全部长度", "短文 <50", "中篇 50-200", "长文 >200"])
+        self._length_combo.currentIndexChanged.connect(self._filter_materials)
+        filter_layout.addWidget(self._length_combo)
 
         layout.addLayout(filter_layout)
 
@@ -146,6 +153,44 @@ class MaterialScreen(QWidget):
             }}
         """)
         btn_layout.addWidget(download_btn)
+
+        preview_btn = QPushButton("👀 预览")
+        preview_btn.clicked.connect(self._preview_selected)
+        preview_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_CREAM};
+                color: #5B4A4A;
+                border: 2px solid {COLOR_PINK_LIGHT};
+                border-radius: 14px;
+                padding: 8px 20px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_ACCENT};
+                color: #ffffff;
+                border-color: {COLOR_ACCENT};
+            }}
+        """)
+        btn_layout.addWidget(preview_btn)
+
+        fav_btn = QPushButton("⭐ 收藏/取消")
+        fav_btn.clicked.connect(self._toggle_favorite)
+        fav_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {COLOR_PEACH};
+                color: #5B4A4A;
+                border: 2px solid {COLOR_PINK_LIGHT};
+                border-radius: 14px;
+                padding: 8px 20px;
+                font-size: 14px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLOR_ACCENT};
+                color: #ffffff;
+                border-color: {COLOR_ACCENT};
+            }}
+        """)
+        btn_layout.addWidget(fav_btn)
 
         import_btn = QPushButton("📂 导入本地文本")
         import_btn.clicked.connect(self._import_local_text)
@@ -182,38 +227,92 @@ class MaterialScreen(QWidget):
             return
         self._list.clear()
 
-        cat_map = {0: None, 1: "poetry", 2: "idiom", 3: "article", 4: "legal"}
+        cat_map = {0: None, 1: "poetry", 2: "idiom", 3: "article", 4: "legal", 5: "recent"}
         category = cat_map.get(self._category_combo.currentIndex())
 
         diff_map = {0: None, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}
         difficulty = diff_map.get(self._diff_combo.currentIndex())
 
         search = self._search_input.text().strip().lower() if hasattr(self, '_search_input') else ""
+        length_filter = self._length_combo.currentIndex() if hasattr(self, '_length_combo') else 0
+        recent_titles = set()
+        if category == "recent":
+            from src.app import App
+            recent_titles = App.instance().db.query_recent_material_titles()
+            category = None
 
         materials = self._mm.get_materials()
         for m in materials:
             if category and m.get("category") != category:
                 continue
+            if recent_titles and m.get("title", "") not in recent_titles:
+                continue
+            if self._category_combo.currentIndex() == 5 and not recent_titles:
+                continue
             if difficulty and m.get("difficulty") != difficulty:
                 continue
             if search and search not in m.get("title", "").lower() and search not in m.get("content", "").lower():
+                continue
+            length = len(m.get("content", ""))
+            if length_filter == 1 and length >= 50:
+                continue
+            if length_filter == 2 and not (50 <= length <= 200):
+                continue
+            if length_filter == 3 and length <= 200:
                 continue
 
             title = m.get("title", "")
             author = m.get("author", "")
             diff = m.get("difficulty", "?")
             cat = m.get("category", "")
-            cat_names = {"poetry": "诗词", "idiom": "成语", "article": "文章", "legal": "法律"}
+            cat_names = {"poetry": "诗词", "idiom": "成语", "article": "文章", "news": "新闻", "legal": "法律", "review": "复训"}
             cat_display = cat_names.get(cat, cat)
 
-            text = f"  {title}"
+            star = "★ " if m.get("is_favorite") else ""
+            text = f"  {star}{title}"
             if author:
                 text += f" — {author}"
-            text += f"    [HSK {diff}] [{cat_display}]"
+            text += f"    [HSK {diff}] [{cat_display}] [{length}字]"
 
             item = QListWidgetItem(text)
             item.setData(Qt.ItemDataRole.UserRole, m)
             self._list.addItem(item)
+
+    def _selected_material(self) -> dict | None:
+        selected = self._list.selectedItems() if hasattr(self, '_list') else []
+        if not selected:
+            return None
+        return selected[0].data(Qt.ItemDataRole.UserRole)
+
+    def _preview_selected(self):
+        material = self._selected_material()
+        if not material:
+            QMessageBox.information(self, "预览", "请先选择一条素材。")
+            return
+        content = material.get("content", "")
+        if len(content) > 1200:
+            content = content[:1200] + "\n\n……"
+        QMessageBox.information(
+            self,
+            material.get("title", "素材预览"),
+            content or "这条素材没有正文。",
+        )
+
+    def _toggle_favorite(self):
+        material = self._selected_material()
+        if not material:
+            QMessageBox.information(self, "收藏", "请先选择一条素材。")
+            return
+        material_id = material.get("id")
+        if not material_id:
+            QMessageBox.information(self, "收藏", "内置素材暂不支持收藏；下载或导入后可收藏。")
+            return
+        from src.app import App
+        store = MaterialStore(App.instance().db.conn)
+        target = not bool(material.get("is_favorite"))
+        if store.set_favorite(material_id, target):
+            self._mm.reload()
+            self._filter_materials()
 
     def _download_materials(self):
         scraper_map = {"成语数据集": "idiom", "古诗文网": "poetry", "新闻RSS": "news", "法律文书": "legal"}
@@ -307,7 +406,7 @@ class MaterialScreen(QWidget):
                         if store.save(mat):
                             imported += 1
             except Exception as e:
-                print(f"Import error for {file_path}: {e}")
+                logging.warning("MaterialScreen: import error for %s: %s", file_path, e)
                 continue
 
         thread_conn.close()

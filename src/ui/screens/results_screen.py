@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QEvent
 from src.constants import (
     COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_LAVENDER, COLOR_MINT,
     COLOR_CREAM, COLOR_PEACH, COLOR_SKY, COLOR_ERROR,
@@ -37,6 +37,22 @@ def _stat_card(label: str, value: str, emoji: str, bg: str) -> QWidget:
     return card
 
 
+def _mistake_counts(mistakes: list[dict]) -> list[tuple[str, int, str]]:
+    counts: dict[str, dict] = {}
+    for event in mistakes:
+        expected = event.get("expected", "")
+        if not expected:
+            continue
+        item = counts.setdefault(expected, {"count": 0, "actual": event.get("actual", "")})
+        item["count"] += 1
+        if event.get("actual"):
+            item["actual"] = event.get("actual", "")
+    return sorted(
+        ((ch, data["count"], data["actual"]) for ch, data in counts.items()),
+        key=lambda row: (-row[1], row[0]),
+    )
+
+
 class ResultsScreen(QWidget):
     navigate_to = None
 
@@ -45,12 +61,18 @@ class ResultsScreen(QWidget):
         self._result = {}
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def keyPressEvent(self, event):
-        # Block space/enter from activating buttons accidentally
-        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            event.ignore()
-            return
-        super().keyPressEvent(event)
+    def eventFilter(self, obj, ev):
+        # Block space/enter on all child buttons to prevent accidental clicks
+        if ev.type() == QEvent.Type.KeyPress and isinstance(obj, QPushButton):
+            if ev.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                return True
+        return super().eventFilter(obj, ev)
+
+    def _install_button_filter(self, btn: QPushButton):
+        btn.setAutoDefault(False)
+        btn.setDefault(False)
+        btn.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        btn.installEventFilter(self)
 
     def on_enter(self, data: dict):
         self._result = data
@@ -76,8 +98,7 @@ class ResultsScreen(QWidget):
         back_btn = QPushButton("← 返回主菜单")
         back_btn.setObjectName("back_btn")
         back_btn.setFixedHeight(36)
-        back_btn.setAutoDefault(False)
-        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._install_button_filter(back_btn)
         back_btn.clicked.connect(self._back_to_menu)
         top_bar.addWidget(back_btn)
         top_bar.addStretch()
@@ -142,6 +163,39 @@ class ResultsScreen(QWidget):
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(16)
 
+        mistakes = self._result.get("mistakes", [])
+        review_box = QFrame()
+        review_box.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLOR_CREAM};
+                border: 2px dashed {COLOR_PINK_LIGHT};
+                border-radius: 16px;
+            }}
+        """)
+        review_layout = QVBoxLayout(review_box)
+        review_layout.setContentsMargins(18, 12, 18, 12)
+        review_layout.setSpacing(6)
+
+        review_title = QLabel("🧭 本次复盘")
+        review_title.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {COLOR_ACCENT}; background: transparent;")
+        review_layout.addWidget(review_title)
+
+        top_mistakes = _mistake_counts(mistakes)[:8]
+        if top_mistakes:
+            parts = []
+            for expected, count, actual in top_mistakes:
+                suffix = f"（误输 {actual}）" if actual else ""
+                parts.append(f"{expected} ×{count}{suffix}")
+            review_text = "常错：" + "  ".join(parts)
+        else:
+            review_text = "本次没有错字，保持这个手感。"
+        review_label = QLabel(review_text)
+        review_label.setWordWrap(True)
+        review_label.setStyleSheet("font-size: 14px; color: #5B4A4A; background: transparent;")
+        review_layout.addWidget(review_label)
+        content_layout.addWidget(review_box)
+        content_layout.addSpacing(8)
+
         # Buttons inside scrollable content
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(20)
@@ -149,8 +203,7 @@ class ResultsScreen(QWidget):
 
         retry_btn = QPushButton("🔄 再来一次")
         retry_btn.setMinimumSize(180, 52)
-        retry_btn.setAutoDefault(False)
-        retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._install_button_filter(retry_btn)
         retry_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_ACCENT};
@@ -168,10 +221,30 @@ class ResultsScreen(QWidget):
         retry_btn.clicked.connect(self._retry)
         btn_layout.addWidget(retry_btn)
 
+        if top_mistakes:
+            review_btn = QPushButton("🎯 重练错字")
+            review_btn.setMinimumSize(180, 52)
+            self._install_button_filter(review_btn)
+            review_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLOR_MINT};
+                    color: #5B4A4A;
+                    border: 2px solid {COLOR_PINK_LIGHT};
+                    border-radius: 18px;
+                    font-size: 16px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLOR_ACCENT};
+                    color: #ffffff;
+                }}
+            """)
+            review_btn.clicked.connect(self._review_mistakes)
+            btn_layout.addWidget(review_btn)
+
         menu_btn = QPushButton("🏠 返回菜单")
         menu_btn.setMinimumSize(180, 52)
-        menu_btn.setAutoDefault(False)
-        menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._install_button_filter(menu_btn)
         menu_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: {COLOR_LAVENDER};
@@ -197,6 +270,25 @@ class ResultsScreen(QWidget):
         mode = self._result.get("mode", "follow")
         if self.navigate_to:
             self.navigate_to("game", {"mode": mode})
+
+    def _review_mistakes(self):
+        mistakes = _mistake_counts(self._result.get("mistakes", []))
+        chars = [expected for expected, _, _ in mistakes]
+        if not chars:
+            return
+        text = "".join(chars)
+        while len(text) < min(24, len(chars) * 4):
+            text += "".join(chars)
+        material = {
+            "title": "本次错字复训",
+            "author": "",
+            "category": "review",
+            "content": text[:80],
+            "difficulty": 1,
+            "source": "session_mistakes",
+        }
+        if self.navigate_to:
+            self.navigate_to("game", {"mode": "follow", "material": material})
 
     def _back_to_menu(self):
         if self.navigate_to:

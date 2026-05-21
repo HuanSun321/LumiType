@@ -249,6 +249,20 @@ class StatsScreen(QWidget):
         self._chart.setMinimumHeight(200)
         layout.addWidget(self._chart)
 
+        self._mistake_panel = QLabel("")
+        self._mistake_panel.setWordWrap(True)
+        self._mistake_panel.setStyleSheet(f"""
+            QLabel {{
+                background-color: {COLOR_CREAM};
+                color: #5B4A4A;
+                border: 2px dashed {COLOR_PINK_LIGHT};
+                border-radius: 14px;
+                padding: 10px 14px;
+                font-size: 14px;
+            }}
+        """)
+        layout.addWidget(self._mistake_panel)
+
         # History table
         self._table = QTableWidget()
         self._table.setColumnCount(7)
@@ -314,33 +328,12 @@ class StatsScreen(QWidget):
 
         self._update_summary_cards(current, previous)
         self._update_chart(start, end)
+        self._update_mistake_panel(start, end)
         self._load_history(start, end)
 
     def _query_stats(self, start: str, end: str) -> dict:
         db = App.instance().db
-        try:
-            row = db.conn.execute("""
-                SELECT COUNT(*),
-                       ROUND(AVG(cpm), 1),
-                       ROUND(AVG(accuracy), 4),
-                       MAX(score),
-                       MAX(max_combo),
-                       COALESCE(SUM(score), 0)
-                FROM game_results
-                WHERE played_at >= ? AND played_at < ?
-            """, (start, end)).fetchone()
-            if row and row[0] > 0:
-                return {
-                    "count": row[0],
-                    "avg_cpm": row[1] or 0,
-                    "avg_accuracy": row[2] or 0,
-                    "max_score": row[3] or 0,
-                    "max_combo": row[4] or 0,
-                    "total_score": row[5] or 0,
-                }
-        except Exception:
-            pass
-        return {"count": 0, "avg_cpm": 0, "avg_accuracy": 0, "max_score": 0, "max_combo": 0, "total_score": 0}
+        return db.query_stats(start, end)
 
     def _format_change(self, current: float, previous: float, suffix: str = "%") -> tuple[str, bool]:
         """Format comparison text. Returns (text, is_positive)."""
@@ -378,6 +371,10 @@ class StatsScreen(QWidget):
             ("最高连击", str(current["max_combo"]), "🔥", COLOR_PEACH,
              *self._format_change(current["max_combo"], previous["max_combo"], "")),
         ]
+        streak = App.instance().db.query_streak_days()
+        top_mistakes = App.instance().db.query_top_mistakes(limit=1)
+        cards.append(("连续天数", f"{streak} 天", "🌱", COLOR_MINT, "", True))
+        cards.append(("常错字", top_mistakes[0]["expected"] if top_mistakes else "-", "🧭", COLOR_CREAM, "", True))
         for label, value, emoji, bg, change, is_pos in cards:
             self._summary_layout.addLayout(
                 _summary_card(label, value, emoji, bg, change, is_pos)
@@ -394,31 +391,30 @@ class StatsScreen(QWidget):
     def _update_chart(self, start: str, end: str):
         """Update bar chart with daily practice counts for the last 7 days."""
         db = App.instance().db
-        try:
-            rows = db.conn.execute("""
-                SELECT DATE(played_at) as day, COUNT(*), ROUND(AVG(cpm), 1)
-                FROM game_results
-                WHERE played_at >= ? AND played_at < ?
-                GROUP BY DATE(played_at)
-                ORDER BY day ASC
-                LIMIT 14
-            """, (start, end)).fetchall()
+        daily_data = db.query_daily_chart(start, end)
 
-            colors = [
-                "#FFD1DC", "#E8DAEF", "#D5F5E3", "#D6EAF8",
-                "#FDEBD0", "#C5A3FF", "#FFB86C",
-                "#FFD1DC", "#E8DAEF", "#D5F5E3", "#D6EAF8",
-                "#FDEBD0", "#C5A3FF", "#FFB86C",
-            ]
-            data = []
-            for i, row in enumerate(rows):
-                day_label = str(row[0])[-5:]  # MM-DD
-                count = row[1]
-                data.append((day_label, float(count), colors[i % len(colors)]))
+        colors = [
+            "#FFD1DC", "#E8DAEF", "#D5F5E3", "#D6EAF8",
+            "#FDEBD0", "#C5A3FF", "#FFB86C",
+            "#FFD1DC", "#E8DAEF", "#D5F5E3", "#D6EAF8",
+            "#FDEBD0", "#C5A3FF", "#FFB86C",
+        ]
+        data = []
+        for i, (day_label, count, avg_cpm) in enumerate(daily_data):
+            data.append((day_label, float(count), colors[i % len(colors)]))
 
-            self._chart.set_data(data if data else [("无数据", 0, COLOR_LAVENDER)])
-        except Exception:
-            self._chart.set_data([("无数据", 0, COLOR_LAVENDER)])
+        self._chart.set_data(data if data else [("无数据", 0, COLOR_LAVENDER)])
+
+    def _update_mistake_panel(self, start: str, end: str):
+        mistakes = App.instance().db.query_top_mistakes(limit=8, start=start, end=end)
+        if not mistakes:
+            self._mistake_panel.setText("常错字：暂无记录。完成一次练习后，这里会显示需要复训的字。")
+            return
+        parts = []
+        for item in mistakes:
+            actual = f" / 常误输 {item['last_actual']}" if item.get("last_actual") else ""
+            parts.append(f"{item['expected']} ×{item['count']}{actual}")
+        self._mistake_panel.setText("常错字：" + "  ".join(parts))
 
     def _load_history(self, start: str = None, end: str = None):
         db = App.instance().db

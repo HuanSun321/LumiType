@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtGui import QPainter, QFont, QColor, QFontMetrics, QPen, QBrush
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt, QRect, QRectF
 from src.app import App
 from src.constants import DEFAULT_FONT_SIZE
 
@@ -25,8 +25,9 @@ class TextDisplayWidget(QWidget):
         font_size = config.get("font_size") or DEFAULT_FONT_SIZE
         self._font = QFont(font_family, font_size)
         self._title_font = QFont(font_family, max(12, font_size - 8))
-        self._line_height = font_size * 2 + 4
-        self._margin = 24
+        self._line_height = int(font_size * 1.75 + 10)
+        self._margin = 28
+        self._char_spacing = 4
         self._viewport_y = 0
 
         # Layout mode: 'poetry' | 'prose'
@@ -48,13 +49,16 @@ class TextDisplayWidget(QWidget):
             self._char_states[0] = self.CHAR_STATE_CURRENT
         self._detect_mode()
         self._recalc_layout()
+        # Deferred recalculation in case widget isn't laid out yet
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._recalc_layout)
         self.update()
 
     def _detect_mode(self):
         """Detect if text is poetry (short lines with \\n) or prose."""
         # If material explicitly tagged as poetry, force poetry mode
         if self._category in ("poetry", "poem"):
-            self._layout_mode = "poetry"
+            self._layout_mode = "prose" if self._looks_like_ci_or_long_verse() else "poetry"
             return
         lines = self._text.split('\n')
         if len(lines) <= 1:
@@ -63,6 +67,25 @@ class TextDisplayWidget(QWidget):
         # Poetry: most lines are short (≤10 chars, typical 五言/七言)
         avg_len = sum(len(l) for l in lines) / len(lines)
         self._layout_mode = "poetry" if avg_len <= 10 else "prose"
+
+    def _looks_like_ci_or_long_verse(self) -> bool:
+        if "\n" in self._text:
+            lines = [line for line in self._text.split("\n") if line.strip()]
+            avg_len = sum(len(line) for line in lines) / max(1, len(lines))
+            return avg_len > 18
+
+        sentences = []
+        current = ""
+        for ch in self._text:
+            current += ch
+            if ch in "。！？!?":
+                sentences.append(current)
+                current = ""
+        if current:
+            sentences.append(current)
+        avg_sentence_len = sum(len(s) for s in sentences) / max(1, len(sentences))
+        max_sentence_len = max((len(s) for s in sentences), default=0)
+        return len(self._text) > 40 and (len(sentences) > 4 or avg_sentence_len > 16 or max_sentence_len > 16)
 
     @property
     def title(self) -> str:
@@ -81,11 +104,17 @@ class TextDisplayWidget(QWidget):
         super().resizeEvent(event)
         self._recalc_layout()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._recalc_layout)
+
     def _recalc_layout(self):
         fm = QFontMetrics(self._font)
         max_x = self.width() - self._margin
-        if max_x <= 0:
-            max_x = 800
+        if max_x <= 60:
+            # Widget not laid out yet or too small — skip, will retry via QTimer
+            return
 
         if self._layout_mode == "poetry":
             self._recalc_poetry(fm, self._margin, max_x)
@@ -93,40 +122,80 @@ class TextDisplayWidget(QWidget):
             self._recalc_prose(fm, self._margin, max_x)
 
     def _recalc_poetry(self, fm, y, max_x):
-        """Center each line of poetry both horizontally and vertically."""
+        """Center poetry using poem-like line breaks instead of container wrapping."""
         self._char_positions = []
-        lines = self._text.split('\n')
+        visual_lines = self._poetry_visual_lines()
 
         # Calculate total content height for vertical centering
         title_height = 44 if self._title else 0
-        content_height = len(lines) * self._line_height
+        content_height = max(1, len(visual_lines)) * self._line_height
         total_content = title_height + content_height
         widget_h = self.height() if self.height() > 100 else 600
-        vertical_offset = max(0, (widget_h - total_content) / 2)
+        vertical_offset = max(self._margin, (widget_h - total_content) / 2)
 
         y = vertical_offset
         if self._title:
             y += title_height
 
-        char_idx = 0
-        for line_idx, line in enumerate(lines):
-            line_width = sum(fm.horizontalAdvance(ch) for ch in line)
-            line_x = self._margin + max(0, (max_x - self._margin * 2 - line_width) / 2)
+        for line in visual_lines:
+            line_width = sum(fm.horizontalAdvance(ch) + self._char_spacing for _, ch in line)
+            line_x = self._margin + max(0, (self.width() - self._margin * 2 - line_width) / 2)
             x = line_x
-            for ch in line:
-                self._char_positions.append((char_idx, x, y))
-                x += fm.horizontalAdvance(ch)
-                char_idx += 1
-            char_idx += 1  # skip \n
+            for source_idx, ch in line:
+                self._char_positions.append((source_idx, x, y))
+                x += fm.horizontalAdvance(ch) + self._char_spacing
             y += self._line_height
 
         self._total_height = max(widget_h, y + self._line_height)
         self._poetry_vertically_centered = total_content <= widget_h
 
+    def _poetry_visual_lines(self) -> list[list[tuple[int, str]]]:
+        """Build poem lines from original line breaks or Chinese punctuation.
+
+        Short poems often read best as one sentence per line. Regulated verse
+        reads well as two half-lines per row, e.g. `白日依山尽，黄河入海流。`.
+        Ci/long prose-like text keeps paragraph lines and uses prose layout.
+        """
+        raw_lines = self._text.split('\n')
+        if len(raw_lines) > 1:
+            lines = []
+            char_idx = 0
+            for raw in raw_lines:
+                line = []
+                for ch in raw:
+                    line.append((char_idx, ch))
+                    char_idx += 1
+                lines.append(line)
+                char_idx += 1
+            return lines
+
+        sentences: list[list[tuple[int, str]]] = []
+        current: list[tuple[int, str]] = []
+        for idx, ch in enumerate(self._text):
+            current.append((idx, ch))
+            if ch in "。！？!?":
+                sentences.append(current)
+                current = []
+        if current:
+            sentences.append(current)
+
+        if not sentences:
+            return [[]]
+
+        if any(any(ch in "，,、" for _, ch in sentence) for sentence in sentences):
+            return sentences
+
+        avg_len = sum(len(s) for s in sentences) / len(sentences)
+        if avg_len <= 8 and len(sentences) >= 2:
+            return [sentences[i] + sentences[i + 1] if i + 1 < len(sentences) else sentences[i]
+                    for i in range(0, len(sentences), 2)]
+        return sentences
+
     def _recalc_prose(self, fm, y, max_x):
         """Prose: indent first line of each paragraph, extra spacing between paragraphs."""
         self._char_positions = []
         indent_width = fm.horizontalAdvance('　') * 2  # 2 full-width spaces
+        self._char_spacing = 2
         paragraph_gap = self._line_height * 0.6  # extra space between paragraphs
         lines = self._text.split('\n')
 
@@ -152,7 +221,7 @@ class TextDisplayWidget(QWidget):
                     x = self._margin  # wrap: no indent on continuation lines
                     y += self._line_height
                 self._char_positions.append((char_idx, x, y))
-                x += ch_w
+                x += ch_w + self._char_spacing
                 char_idx += 1
             char_idx += 1  # skip \n
             y += self._line_height
@@ -190,7 +259,9 @@ class TextDisplayWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor("#FFF8F0"))
+        painter.setPen(QPen(QColor("#FFD1DC"), 2, Qt.PenStyle.DashLine))
+        painter.setBrush(QBrush(QColor("#FFF8E7")))
+        painter.drawRoundedRect(QRectF(self.rect()).adjusted(1, 1, -1, -1), 16, 16)
 
         y = self._margin - self._viewport_y
 
@@ -225,9 +296,15 @@ class TextDisplayWidget(QWidget):
             self.CHAR_STATE_CURRENT: QColor("#5B4A4A"),
         }
 
+        # Only render characters within visible area for performance
+        visible_top = 0
+        visible_bottom = self.height()
         for idx, (i, cx, cy) in enumerate(self._char_positions):
-            ch = self._text[i]
             draw_y = cy - self._viewport_y
+            # Skip characters outside visible area
+            if draw_y < visible_top - self._line_height or draw_y > visible_bottom + self._line_height:
+                continue
+            ch = self._text[i]
             if draw_y < -self._line_height or draw_y > self.height() + self._line_height:
                 continue
 

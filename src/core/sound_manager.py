@@ -1,3 +1,6 @@
+import atexit
+import logging
+import shutil
 import wave
 import struct
 import math
@@ -19,7 +22,16 @@ class SoundManager:
         self._volume = 0.5
         self._effects: dict[str, QSoundEffect] = {}
         self._temp_dir = tempfile.mkdtemp(prefix="typehan_sounds_")
+        atexit.register(self._cleanup_temp_dir)
         self._generate_all()
+
+    def _cleanup_temp_dir(self):
+        """Clean up temporary WAV files on exit."""
+        try:
+            if os.path.isdir(self._temp_dir):
+                shutil.rmtree(self._temp_dir, ignore_errors=True)
+        except Exception:
+            logging.debug("Failed to clean temp sound dir", exc_info=True)
 
     @classmethod
     def instance(cls):

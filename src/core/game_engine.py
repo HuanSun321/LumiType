@@ -2,6 +2,7 @@ import time
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from src.core.game_state import GameState, GameMode
 from src.core.scoring import ScoringEngine
+from src.constants import TICK_INTERVAL_MS, LOGIC_INTERVAL_MS
 
 
 class GameEngine(QObject):
@@ -21,11 +22,11 @@ class GameEngine(QObject):
         self._paused_elapsed = 0.0
 
         self._tick_timer = QTimer(self)
-        self._tick_timer.setInterval(16)
+        self._tick_timer.setInterval(TICK_INTERVAL_MS)
         self._tick_timer.timeout.connect(self._on_tick)
 
         self._logic_timer = QTimer(self)
-        self._logic_timer.setInterval(100)
+        self._logic_timer.setInterval(LOGIC_INTERVAL_MS)
         self._logic_timer.timeout.connect(self._on_logic)
 
     @property
@@ -77,7 +78,12 @@ class GameEngine(QObject):
         self._tick_timer.stop()
         self._logic_timer.stop()
         self._elapsed = self._get_time() - self._start_time
-        result = self._mode.calculate_result() if self._mode else {}
+        if self._mode and hasattr(self._mode, "calculate_result"):
+            result = self._mode.calculate_result()
+        elif self._mode and hasattr(self._mode, "get_result"):
+            result = self._mode.get_result()
+        else:
+            result = {}
         # Engine's elapsed is authoritative (accounts for pauses)
         result["elapsed"] = self._elapsed
         result["score"] = self._scoring.score
@@ -95,10 +101,14 @@ class GameEngine(QObject):
     def process_input(self, text: str):
         if self._state == GameState.PLAYING and self._mode:
             self._mode.process_input(text)
+            if hasattr(self._mode, "is_game_over") and self._mode.is_game_over():
+                self.end()
 
     def _on_tick(self):
         if self._state == GameState.PLAYING and self._mode:
-            self._mode.on_tick()
+            self._mode.on_tick(TICK_INTERVAL_MS / 1000.0)
+            if hasattr(self._mode, "is_game_over") and self._mode.is_game_over():
+                self.end()
 
     def _on_logic(self):
         if self._state == GameState.PLAYING and self._mode:

@@ -65,14 +65,26 @@ class ThemeManager:
         p = self.palette
         return f"""
             QMainWindow, QWidget {{
-                background-color: {p['bg_primary']};
                 color: {p['text_primary']};
                 font-family: "{self._font_family}";
+            }}
+            QMainWindow {{
+                background: transparent;
+            }}
+            QStackedWidget {{
+                background-color: {p['bg_primary']};
+                border-bottom-left-radius: 16px;
+                border-bottom-right-radius: 16px;
+            }}
+            QWidget#windowShell {{
+                background-color: {p['bg_primary']};
+                border: 2px solid {p['pink_light']};
+                border-radius: 18px;
             }}
             QFrame#card {{
                 background-color: {p['bg_card']};
                 border: 2px dashed {p['pink_light']};
-                border-radius: 20px;
+                border-radius: 18px;
                 padding: 20px;
             }}
             QFrame#card:hover {{
@@ -86,11 +98,15 @@ class ThemeManager:
                 border-radius: 16px;
                 padding: 10px 24px;
                 font-size: 15px;
+                min-height: 24px;
             }}
             QPushButton:hover {{
                 background-color: {p['accent']};
                 color: #ffffff;
                 border-color: {p['accent']};
+            }}
+            QPushButton:focus {{
+                border: 2px dashed {p['accent']};
             }}
             QPushButton:pressed {{
                 background-color: #ff7096;
@@ -122,7 +138,7 @@ class ThemeManager:
                 background-color: {p['bg_card']};
                 color: {p['text_primary']};
                 border: 2px solid {p['pink_light']};
-                border-radius: 14px;
+                border-radius: 16px;
                 padding: 12px 16px;
                 font-size: 20px;
                 selection-background-color: {p['accent']};
@@ -153,9 +169,13 @@ class ThemeManager:
                 background-color: {p['bg_card']};
                 color: {p['text_primary']};
                 border: 2px solid {p['pink_light']};
-                border-radius: 10px;
+                border-radius: 12px;
                 padding: 6px 12px;
                 font-size: 14px;
+                min-height: 24px;
+            }}
+            QComboBox:hover, QSpinBox:hover, QLineEdit:hover {{
+                border-color: {p['accent']};
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -165,9 +185,17 @@ class ThemeManager:
                 background-color: {p['bg_card']};
                 color: {p['text_primary']};
                 border: 2px solid {p['pink_light']};
-                border-radius: 8px;
+                padding: 4px;
                 selection-background-color: {p['accent']};
                 selection-color: #ffffff;
+                outline: none;
+            }}
+            QComboBox QAbstractItemView::item {{
+                padding: 4px 8px;
+                min-height: 24px;
+            }}
+            QComboBox QAbstractItemView::item:hover {{
+                background-color: {p['cream']};
             }}
             QSlider {{
                 background: transparent;
@@ -189,8 +217,9 @@ class ThemeManager:
                 background-color: {p['bg_card']};
                 color: {p['text_primary']};
                 border: 2px solid {p['pink_light']};
-                border-radius: 8px;
+                border-radius: 10px;
                 padding: 4px 8px;
+                min-height: 28px;
             }}
             QCheckBox {{
                 color: {p['text_primary']};
@@ -222,9 +251,10 @@ class ThemeManager:
                 font-weight: bold;
                 color: {p['accent']};
                 border: 2px dashed {p['pink_light']};
-                border-radius: 16px;
+                border-radius: 18px;
                 margin-top: 12px;
                 padding-top: 20px;
+                background-color: rgba(255, 255, 255, 120);
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
@@ -266,7 +296,7 @@ class ThemeManager:
                 background-color: {p['bg_card']};
                 color: {p['text_primary']};
                 border: 2px solid {p['pink_light']};
-                border-radius: 12px;
+                border-radius: 16px;
                 padding: 8px;
             }}
             QListWidget::item {{

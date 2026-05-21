@@ -1,18 +1,14 @@
 import json
+import logging
 import random
+import threading
 from src.utils.paths import get_data_dir
 
 
 class MaterialManager:
-    _instance = None
+    """Manages typing practice materials with thread-safe access."""
 
-    def __init__(self):
-        if MaterialManager._instance is not None:
-            raise RuntimeError("Use MaterialManager.instance()")
-        MaterialManager._instance = self
-        self._materials: list[dict] = []
-        self._db_loaded = False
-        self._load_builtin()
+    _instance = None
 
     @classmethod
     def instance(cls):
@@ -20,48 +16,110 @@ class MaterialManager:
             cls._instance = cls()
         return cls._instance
 
-    def _load_builtin(self):
-        data_dir = get_data_dir()
-        for json_file in data_dir.glob("*.json"):
-            try:
-                with open(json_file, "r", encoding="utf-8") as f:
-                    items = json.load(f)
-                if isinstance(items, list):
-                    for item in items:
-                        if "title" not in item:
-                            item["title"] = item.get("word", "")
-                        if "content" not in item:
-                            item["content"] = item.get("word", "")
-                        if "category" not in item:
-                            item["category"] = "idiom"
-                        self._materials.append(item)
-            except Exception as e:
-                print(f"Warning: failed to load {json_file}: {e}")
+    def __init__(self):
+        self._materials: list[dict] = []
+        self._lock = threading.Lock()
+        self._db_loaded = False
 
-        if not self._materials:
-            self._materials = self._fallback_materials()
+    def get_random(self, count: int = 1) -> list[dict]:
+        with self._lock:
+            self._ensure_loaded()
+            if not self._materials:
+                return []
+            count = min(count, len(self._materials))
+            return random.sample(self._materials, count)
 
-    def _ensure_db_loaded(self):
-        """Lazy-load DB materials on first access."""
+    def get_random_material(self, category: str | None = None, difficulty: int | None = None) -> dict:
+        with self._lock:
+            self._ensure_loaded()
+            pool = self._filter_unlocked(category=category, difficulty=difficulty)
+            if not pool:
+                pool = self._materials
+            return random.choice(pool) if pool else self._fallback_materials()[0]
+
+    def get_all(self) -> list[dict]:
+        with self._lock:
+            self._ensure_loaded()
+            return list(self._materials)
+
+    def get_materials(self, category: str | None = None) -> list[dict]:
+        with self._lock:
+            self._ensure_loaded()
+            return list(self._filter_unlocked(category=category))
+
+    def search(self, keyword: str) -> list[dict]:
+        with self._lock:
+            self._ensure_loaded()
+            keyword = keyword.lower()
+            return [m for m in self._materials if keyword in m.get("title", "").lower()
+                    or keyword in m.get("content", "").lower()]
+
+    def reload(self):
+        with self._lock:
+            self._materials.clear()
+            self._db_loaded = False
+            self._ensure_loaded()
+            return len(self._materials)
+
+    @property
+    def count(self) -> int:
+        with self._lock:
+            self._ensure_loaded()
+            return len(self._materials)
+
+    def _ensure_loaded(self):
+        """Load materials from DB if not already loaded. Must be called under self._lock."""
         if self._db_loaded:
             return
         self._db_loaded = True
         try:
+            from src.db.database import DatabaseManager
             from src.materials.material_store import MaterialStore
-            store = MaterialStore()
+            db = DatabaseManager.instance()
+            store = MaterialStore(db.conn)
             db_materials = store.get_all(limit=200)
-            existing_hashes = {m.get("content") for m in self._materials}
-            for m in db_materials:
-                if m.get("content") not in existing_hashes:
-                    self._materials.append({
-                        "title": m.get("title", ""),
-                        "author": m.get("author", ""),
-                        "content": m.get("content", ""),
-                        "category": m.get("category", "article"),
-                        "difficulty": m.get("difficulty", 1),
-                    })
-        except Exception:
-            pass
+            self._materials.extend(db_materials)
+        except Exception as e:
+            logging.warning("MaterialManager: failed to load from DB: %s", e, exc_info=True)
+        try:
+            data_dir = get_data_dir()
+            for json_file in data_dir.glob("*.json"):
+                try:
+                    with open(json_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, list):
+                        self._materials.extend(self._normalize_material(item) for item in data)
+                    elif isinstance(data, dict):
+                        self._materials.append(self._normalize_material(data))
+                except Exception as e:
+                    logging.warning("MaterialManager: failed to load %s: %s", json_file, e)
+        except Exception as e:
+            logging.warning("MaterialManager: failed to scan data dir: %s", e)
+        if not self._materials:
+            self._materials.extend(self._fallback_materials())
+
+    def _filter_unlocked(self, category: str | None = None, difficulty: int | None = None) -> list[dict]:
+        pool = self._materials
+        if category:
+            cats = {"article"} if category == "article" else {category}
+            if category == "article":
+                cats.add("news")
+            pool = [m for m in pool if m.get("category") in cats]
+        if difficulty:
+            pool = [m for m in pool if m.get("difficulty") == difficulty]
+        return pool
+
+    def _normalize_material(self, item: dict) -> dict:
+        normalized = dict(item)
+        if "title" not in normalized:
+            normalized["title"] = normalized.get("word", "")
+        if "content" not in normalized:
+            normalized["content"] = normalized.get("word", "")
+        if "category" not in normalized:
+            normalized["category"] = "idiom" if normalized.get("word") else "article"
+        if "difficulty" not in normalized:
+            normalized["difficulty"] = 1
+        return normalized
 
     def _fallback_materials(self) -> list[dict]:
         return [
@@ -87,38 +145,3 @@ class MaterialManager:
                 "difficulty": 2,
             },
         ]
-
-    def get_random_material(self, category: str | None = None, difficulty: int | None = None) -> dict:
-        self._ensure_db_loaded()
-        pool = self._materials
-        if category:
-            cats = {"article"} if category == "article" else {category}
-            if category == "article":
-                cats.add("news")
-            pool = [m for m in pool if m.get("category") in cats]
-        if difficulty:
-            pool = [m for m in pool if m.get("difficulty") == difficulty]
-        if not pool:
-            pool = self._materials
-        return random.choice(pool)
-
-    def get_materials(self, category: str | None = None) -> list[dict]:
-        self._ensure_db_loaded()
-        if category:
-            cats = {"article"} if category == "article" else {category}
-            if category == "article":
-                cats.add("news")
-            return [m for m in self._materials if m.get("category") in cats]
-        return list(self._materials)
-
-    def reload(self):
-        """Reload all materials from builtin files + database."""
-        self._materials = []
-        self._db_loaded = False
-        self._load_builtin()
-        self._ensure_db_loaded()
-        return len(self._materials)
-
-    @property
-    def count(self) -> int:
-        return len(self._materials)

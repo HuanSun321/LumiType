@@ -1,32 +1,29 @@
 import sys
-from src.app import App
-from src.ui.main_window import MainWindow
-from PyQt6.QtWidgets import QApplication
+import logging
+from src.utils.paths import get_app_dir
 
 
 def main():
-    app = QApplication(sys.argv)
-    app.setApplicationName("逐字拾光")
-    app.setOrganizationName("逐字拾光")
-    app_instance = App()
-    app.aboutToQuit.connect(app_instance.db.close)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(str(get_app_dir() / "crash.log"), encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
 
-    # Set global stylesheet on QApplication so popup windows (QComboBox dropdown etc.) inherit styles
-    from src.ui.theme import ThemeManager
-    app.setStyleSheet(ThemeManager().get_stylesheet())
+    try:
+        from PyQt6.QtWidgets import QApplication
+        from src.app import App
 
-    window = MainWindow()
-    # Window show is handled inside MainWindow based on config
-
-    # Auto-update materials in background if enabled
-    if app_instance.config.get("auto_update_materials"):
-        from src.core.material_updater import MaterialUpdater
-        from src.materials.material_manager import MaterialManager
-        updater = MaterialUpdater()
-        updater.finished.connect(lambda n: MaterialManager.instance().reload() if n > 0 else None)
-        updater.start()
-
-    sys.exit(app.exec())
+        app = QApplication(sys.argv)
+        window = App(app)
+        window.show()
+        sys.exit(app.exec())
+    except Exception as e:
+        logging.critical("Application crashed", exc_info=True)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

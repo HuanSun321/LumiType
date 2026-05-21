@@ -82,7 +82,7 @@ class MaterialStore:
             params.append(difficulty)
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-        query += " ORDER BY downloaded_at DESC LIMIT ?"
+        query += " ORDER BY is_favorite DESC, downloaded_at DESC LIMIT ?"
         params.append(limit)
 
         rows = self._db.execute(query, params).fetchall()
@@ -107,3 +107,15 @@ class MaterialStore:
         else:
             row = self._db.execute("SELECT COUNT(*) FROM materials").fetchone()
         return row[0] if row else 0
+
+    def set_favorite(self, material_id: int, favorite: bool) -> bool:
+        """Toggle favorite state for a stored material."""
+        try:
+            cursor = self._db.execute(
+                "UPDATE materials SET is_favorite = ? WHERE id = ?",
+                (1 if favorite else 0, material_id),
+            )
+            self._db.commit()
+            return cursor.rowcount > 0
+        except Exception:
+            return False

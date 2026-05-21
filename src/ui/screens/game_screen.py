@@ -1,3 +1,5 @@
+import logging
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, QTimer
 from src.core.game_state import GameMode
@@ -75,6 +77,7 @@ class GameScreen(QWidget):
         self._mode_name = mode_name
         self._category = data.get("category")
         self._ratio = data.get("ratio", 1.0)
+        self._custom_material = data.get("material")
         self._setup_mode(mode_name)
 
     def _setup_mode(self, mode_name: str):
@@ -122,7 +125,11 @@ class GameScreen(QWidget):
             """)
             layout.addWidget(self._display, stretch=1)
         else:
-            self._mode = FollowTypingMode(category=self._category, ratio=self._ratio)
+            self._mode = FollowTypingMode(
+                category=self._category,
+                ratio=self._ratio,
+                material=self._custom_material,
+            )
             self._display = TextDisplayWidget()
             self._display.setStyleSheet(f"""
                 background-color: {COLOR_CREAM};
@@ -161,24 +168,29 @@ class GameScreen(QWidget):
             """)
             layout.addWidget(self._pinyin_display)
 
-        # Initialize display content
-        if self._display and hasattr(self._mode, 'material'):
-            self._display.set_material(self._mode.material)
-
-        # Keyboard rabbit (overlay in bottom-right, above input bar)
+        # Keyboard rabbit floats in the lower-right corner so it does not consume layout space.
         if self._rabbit:
             self._rabbit.setParent(None)
             self._rabbit.deleteLater()
             self._rabbit = None
         if App.instance().config.get("show_keyboard_rabbit"):
             self._rabbit = KeyboardRabbitWidget(self)
-            # Connect InputBar signals for IME-compatible rabbit animation
+            self._rabbit.set_scale_percent(App.instance().config.get("keyboard_rabbit_scale"))
+            self._rabbit.raise_()
             self._input_bar.composing_changed.connect(self._on_composing_rabbit)
             self._input_bar.text_committed.connect(self._on_text_committed_rabbit)
             QTimer.singleShot(0, self._position_rabbit)
 
+        # Initialize display content
+        if self._display and hasattr(self._mode, 'material'):
+            self._display.set_material(self._mode.material)
+
         # Guard: skip start if text is empty
-        if hasattr(self._mode, '_text') and not self._mode._text:
+        if hasattr(self._mode, 'text') and not self._mode.text:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(self, "素材为空", "当前没有可用的练习素材，请先下载或导入素材。")
+            if self.navigate_to:
+                self.navigate_to("menu")
             return
 
         self._engine.start(self._mode)
@@ -274,24 +286,38 @@ class GameScreen(QWidget):
         return bar
 
     def _on_input(self, text: str):
-        prev_score = self._engine.scoring.score
-        prev_combo = self._engine.scoring.combo
-        self._engine.process_input(text)
-        self._update_display()
-        self._update_hud()
+        try:
+            if self._engine.state.value != "playing":
+                return
+            prev_score = self._engine.scoring.score
+            prev_combo = self._engine.scoring.combo
+            self._engine.process_input(text)
+            if self._engine.state.value == "ended":
+                return
+            self._update_display()
+            self._update_hud()
 
-        # Sound effects
-        sound = App.instance().sound
-        new_score = self._engine.scoring.score
-        new_combo = self._engine.scoring.combo
-        if new_score > prev_score:
-            sound.play("correct")
-        elif new_combo == 0 and prev_combo > 0:
-            sound.play("wrong")
-        else:
-            sound.play("click")
-        if new_combo > 0 and new_combo % 10 == 0 and new_combo > prev_combo:
-            sound.play("combo")
+            # Sound effects + rabbit expression
+            sound = App.instance().sound
+            new_score = self._engine.scoring.score
+            new_combo = self._engine.scoring.combo
+            if new_score > prev_score:
+                sound.play("correct")
+                if self._rabbit:
+                    if new_combo >= 10:
+                        self._rabbit.set_expression("combo")
+                    else:
+                        self._rabbit.set_expression("happy")
+            elif new_combo == 0 and prev_combo > 0:
+                sound.play("wrong")
+                if self._rabbit:
+                    self._rabbit.set_expression("wrong")
+            else:
+                sound.play("click")
+            if new_combo > 0 and new_combo % 10 == 0 and new_combo > prev_combo:
+                sound.play("combo")
+        except Exception as e:
+            logging.error("GameScreen: _on_input error: %s", e, exc_info=True)
 
     def _on_composing(self, pinyin: str):
         if (self._mode
@@ -304,8 +330,8 @@ class GameScreen(QWidget):
     def _on_enter_pressed(self):
         """Clear pinyin buffer in falling text mode on Enter."""
         if self._mode and hasattr(self._mode, '_current_pinyin'):
-            self._mode._current_pinyin = ""
-            self._mode._update_preview()
+            self._mode.current_pinyin = ""
+            self._mode._update_preview()  # internal method, acceptable for now
             if hasattr(self._mode, '_target_item') and self._mode._target_item:
                 self._mode._target_item.set_falling()
                 self._mode._target_item = None
@@ -406,7 +432,10 @@ class GameScreen(QWidget):
         if self._rabbit:
             rw, rh = self._rabbit.width(), self._rabbit.height()
             input_h = self._input_bar.height() if self._input_bar else 50
-            self._rabbit.move(self.width() - rw - 10, self.height() - rh - input_h - 16)
+            x = max(8, self.width() - rw - 18)
+            y = max(8, self.height() - rh - input_h - 24)
+            self._rabbit.move(x, y)
+            self._rabbit.raise_()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -436,34 +465,18 @@ class GameScreen(QWidget):
         self._hud_timer.stop()
         App.instance().sound.play("game_over")
         result["mode"] = self._mode_name
+        if self._mode and hasattr(self._mode, "mistake_events"):
+            result["mistakes"] = self._mode.mistake_events
         self._save_result(result)
         if self.navigate_to:
             self.navigate_to("results", result)
 
     def _save_result(self, result: dict):
         from src.app import App
-        from datetime import datetime
-        try:
-            db = App.instance().db
-            db.conn.execute("""
-                INSERT INTO game_results
-                (mode, played_at, duration_seconds, total_chars, correct_chars,
-                 accuracy, cpm, score, max_combo, difficulty, material_source, material_title)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                result.get("mode", ""),
-                datetime.now().isoformat(),
-                int(result.get("elapsed", 0)),
-                result.get("total_chars", 0),
-                result.get("correct_chars", 0),
-                result.get("accuracy", 0),
-                result.get("cpm", 0),
-                result.get("score", 0),
-                result.get("max_combo", 0),
-                result.get("difficulty", 1),
-                result.get("material_source", ""),
-                result.get("material_title", ""),
-            ))
-            db.conn.commit()
-        except Exception as e:
-            print(f"Failed to save result: {e}")
+        db = App.instance().db
+        result_id = db.save_game_result(result)
+        db.save_typing_mistakes(result_id, result.get("mistakes", []), {
+            "mode": result.get("mode", ""),
+            "material_source": result.get("material_source", ""),
+            "material_title": result.get("material_title", ""),
+        })
