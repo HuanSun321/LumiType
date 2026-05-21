@@ -1,9 +1,10 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QComboBox, QSlider, QCheckBox, QSpinBox, QGroupBox, QFormLayout,
-    QScrollArea, QFrame,
+    QScrollArea, QFrame, QListView,
 )
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QColor, QPalette
 from src.app import App
 from src.constants import (
     COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_LAVENDER, COLOR_MINT,
@@ -26,6 +27,41 @@ _GROUP_STYLE = f"""
         left: 14px;
     }}
 """
+
+
+def _style_combo_popup(combo: QComboBox):
+    combo.setView(QListView(combo))
+    view = combo.view()
+    palette = view.palette()
+    palette.setColor(QPalette.ColorRole.Base, QColor("#FFFFFF"))
+    palette.setColor(QPalette.ColorRole.Text, QColor("#5B4A4A"))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor(COLOR_ACCENT))
+    palette.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
+    view.setPalette(palette)
+    view.setStyleSheet(f"""
+        QListView {{
+            background-color: #FFFFFF;
+            color: #5B4A4A;
+            border: 2px solid {COLOR_PINK_LIGHT};
+            border-radius: 8px;
+            outline: none;
+            padding: 4px;
+        }}
+        QListView::item {{
+            min-height: 28px;
+            padding: 6px 10px;
+            background-color: #FFFFFF;
+            color: #5B4A4A;
+        }}
+        QListView::item:hover {{
+            background-color: {COLOR_CREAM};
+            color: #5B4A4A;
+        }}
+        QListView::item:selected {{
+            background-color: {COLOR_ACCENT};
+            color: #FFFFFF;
+        }}
+    """)
 
 
 class SettingsScreen(QWidget):
@@ -96,6 +132,7 @@ class SettingsScreen(QWidget):
         others = [f for f in cjk if f not in cjk_preferences]
         sorted_fonts = preferred + others
         self._font_combo.addItems(sorted_fonts)
+        _style_combo_popup(self._font_combo)
         current = self._config.get("font_family")
         if current and current in cjk:
             self._font_combo.setCurrentText(current)
@@ -152,6 +189,7 @@ class SettingsScreen(QWidget):
         self._timed_combo = QComboBox()
         self._timed_combo.setMinimumWidth(120)
         self._timed_combo.addItems(["60秒", "120秒", "180秒", "300秒"])
+        _style_combo_popup(self._timed_combo)
         durations = [60, 120, 180, 300]
         current_dur = self._config.get("timed_duration")
         if current_dur in durations:
@@ -181,6 +219,7 @@ class SettingsScreen(QWidget):
         self._deco_combo.setMinimumWidth(120)
         for key, label in DECO_LABELS.items():
             self._deco_combo.addItem(label, key)
+        _style_combo_popup(self._deco_combo)
         current_deco = self._config.get("falling_deco")
         idx = self._deco_combo.findData(current_deco)
         if idx >= 0:
@@ -273,6 +312,7 @@ class SettingsScreen(QWidget):
         self._res_combo = QComboBox()
         self._res_combo.setMinimumWidth(160)
         self._res_combo.addItems(["1024×768", "1280×800", "1280×1024", "1440×900", "1600×900", "1920×1080"])
+        _style_combo_popup(self._res_combo)
         self._res_combo.setEnabled(not self._config.get("fullscreen_mode"))
         cur_w = self._config.get("window_width")
         cur_h = self._config.get("window_height")

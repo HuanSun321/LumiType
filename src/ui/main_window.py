@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QMainWindow, QStackedWidget, QVBoxLayout, QWidget
-from PyQt6.QtCore import Qt, QSize, QRectF
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPen, QPainterPath, QRegion
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont, QPen
 from src.constants import (
     WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT,
     COLOR_ACCENT, COLOR_PINK_LIGHT,
@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
             Qt.WindowType.FramelessWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
 
         # Apply saved window state
         config = App.instance().config
@@ -210,10 +211,10 @@ class MainWindow(QMainWindow):
             return
 
         radius = 18
-        path = QPainterPath()
-        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
-        path.addRoundedRect(rect, radius, radius)
-        self.setMask(QRegion(path.toFillPolygon().toPolygon()))
+        # Avoid QRegion masks here: they are binary clips and produce jagged corners
+        # on high-DPI Windows. The translucent top-level window plus rounded shell
+        # lets Qt paint antialiased edges instead.
+        self.clearMask()
         shell.setStyleSheet(f"""
             QWidget#windowShell {{
                 background-color: #FFF5F5;

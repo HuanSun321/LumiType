@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal
 from PyQt6.QtGui import QFont, QPixmap
-from src.constants import COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_CREAM, COLOR_TEXT_PRIMARY
+from src.constants import COLOR_ACCENT, COLOR_TEXT_PRIMARY
 import os
 
 
@@ -12,10 +12,11 @@ class TitleBar(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("titleBar")
         self.setFixedHeight(44)
         self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {COLOR_PINK_LIGHT};
+            QWidget#titleBar {{
+                background-color: transparent;
                 border-top-left-radius: 16px;
                 border-top-right-radius: 16px;
             }}
@@ -35,22 +36,26 @@ class TitleBar(QWidget):
         self._icon_label = QLabel()
         self._icon_label.setFixedSize(28, 28)
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._icon_label.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         if os.path.exists(icon_path):
             pix = QPixmap(icon_path).scaled(
                 28, 28, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
                 Qt.TransformationMode.SmoothTransformation,
             )
             self._icon_label.setPixmap(pix)
-            self._icon_label.setStyleSheet("background: transparent; border-radius: 6px; padding: 0;")
+            self._icon_label.setStyleSheet("QLabel { background: transparent; border: none; padding: 0; }")
         else:
             self._icon_label.setText("雅")
             self._icon_label.setStyleSheet(f"""
-                background-color: {COLOR_ACCENT};
-                color: white;
-     border-radius: 6px;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 0;
+                QLabel {{
+                    background-color: {COLOR_ACCENT};
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    font-size: 14px;
+                    font-weight: bold;
+                    padding: 0;
+                }}
             """)
         layout.addWidget(self._icon_label)
 
@@ -66,51 +71,57 @@ class TitleBar(QWidget):
         layout.addStretch()
 
         btn_style = f"""
-            QPushButton {{
-                background-color: rgba(255,255,255,0.20);
-                border: 1px dashed rgba(255,255,255,0.55);
-                border-radius: 8px;
-                font-size: 14px;
-                padding: 2px 8px;
+            QPushButton#titleButton {{
+                background-color: rgba(255, 255, 255, 0.36);
+                border: none;
+                border-radius: 10px;
                 color: {COLOR_TEXT_PRIMARY};
+                font-family: "Segoe UI", "Microsoft YaHei";
+                font-size: 15px;
+                font-weight: 500;
+                padding: 0;
             }}
-            QPushButton:hover {{
-                background-color: rgba(255,255,255,0.55);
-                border-color: {COLOR_ACCENT};
+            QPushButton#titleButton:hover {{
+                background-color: rgba(255, 143, 171, 0.28);
             }}
-        """
-        close_style = f"""
-            QPushButton {{
-                background-color: rgba(255,255,255,0.20);
-                border: 1px dashed rgba(255,255,255,0.55);
-                border-radius: 8px;
-                font-size: 14px;
-                padding: 2px 8px;
-                color: {COLOR_TEXT_PRIMARY};
+            QPushButton#titleButton:pressed {{
+                background-color: rgba(255, 143, 171, 0.42);
             }}
-            QPushButton:hover {{
+            QPushButton#titleButton:focus {{
+                outline: none;
+                border: none;
+            }}
+            QPushButton#titleButton[role="close"]:hover {{
                 background-color: #FF6B8A;
-                color: white;
+                color: #ffffff;
             }}
         """
 
-        self._min_btn = QPushButton("─")
-        self._min_btn.setFixedSize(34, 28)
-        self._min_btn.setStyleSheet(btn_style)
+        self._min_btn = self._make_title_button("−")
         self._min_btn.clicked.connect(self.minimize_clicked.emit)
         layout.addWidget(self._min_btn)
 
-        self._max_btn = QPushButton("□")
-        self._max_btn.setFixedSize(34, 28)
-        self._max_btn.setStyleSheet(btn_style)
+        self._max_btn = self._make_title_button("□")
         self._max_btn.clicked.connect(self.maximize_clicked.emit)
         layout.addWidget(self._max_btn)
 
-        self._close_btn = QPushButton("✕")
-        self._close_btn.setFixedSize(34, 28)
-        self._close_btn.setStyleSheet(close_style)
+        self._close_btn = self._make_title_button("×")
+        self._close_btn.setProperty("role", "close")
         self._close_btn.clicked.connect(self.close_clicked.emit)
         layout.addWidget(self._close_btn)
+
+        for btn in (self._min_btn, self._max_btn, self._close_btn):
+            btn.setStyleSheet(btn_style)
+
+    def _make_title_button(self, text: str) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setObjectName("titleButton")
+        btn.setFixedSize(38, 30)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn.setAutoDefault(False)
+        btn.setDefault(False)
+        return btn
 
     def set_fullscreen_mode(self, fullscreen: bool):
         """Hide min/max buttons and disable drag in fullscreen."""

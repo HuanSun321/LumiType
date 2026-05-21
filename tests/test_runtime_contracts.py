@@ -146,11 +146,23 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(window.centralWidget().objectName(), "windowShell")
         window._is_fullscreen = False
         window._sync_window_shape()
-        self.assertFalse(window.mask().isEmpty())
+        self.assertTrue(window.mask().isEmpty())
         window._is_fullscreen = True
         window._sync_window_shape()
         self.assertTrue(window.mask().isEmpty())
         window.close()
+
+    def test_settings_combo_popups_use_light_views(self):
+        ensure_qt_app()
+        from src.ui.screens.settings_screen import SettingsScreen
+
+        screen = SettingsScreen()
+        screen.on_enter({})
+
+        combo_names = ("_font_combo", "_timed_combo", "_deco_combo", "_res_combo")
+        for name in combo_names:
+            combo = getattr(screen, name)
+            self.assertIn("background-color: #FFFFFF", combo.view().styleSheet())
 
     def test_follow_typing_ignores_extra_input_after_game_over(self):
         ensure_qt_app()

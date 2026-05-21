@@ -185,6 +185,7 @@ class ThemeManager:
                 background-color: {p['bg_card']};
                 color: {p['text_primary']};
                 border: 2px solid {p['pink_light']};
+                border-radius: 8px;
                 padding: 4px;
                 selection-background-color: {p['accent']};
                 selection-color: #ffffff;
@@ -196,6 +197,22 @@ class ThemeManager:
             }}
             QComboBox QAbstractItemView::item:hover {{
                 background-color: {p['cream']};
+            }}
+            QAbstractItemView, QListView {{
+                background-color: {p['bg_card']};
+                color: {p['text_primary']};
+                border: 2px solid {p['pink_light']};
+                selection-background-color: {p['accent']};
+                selection-color: #ffffff;
+                outline: none;
+            }}
+            QAbstractItemView::item, QListView::item {{
+                min-height: 28px;
+                padding: 6px 10px;
+            }}
+            QAbstractItemView::item:hover, QListView::item:hover {{
+                background-color: {p['cream']};
+                color: {p['text_primary']};
             }}
             QSlider {{
                 background: transparent;
