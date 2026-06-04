@@ -1,4 +1,5 @@
 import logging
+import math
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt6.QtCore import Qt, QTimer
@@ -17,6 +18,8 @@ from src.constants import (
     COLOR_CREAM, COLOR_PEACH, COLOR_SKY, COLOR_HIGHLIGHT, COLOR_ERROR,
 )
 from src.app import App
+
+logger = logging.getLogger(__name__)
 
 
 _HUD_LABEL_STYLE = f"""
@@ -78,6 +81,14 @@ class GameScreen(QWidget):
         self._category = data.get("category")
         self._ratio = data.get("ratio", 1.0)
         self._custom_material = data.get("material")
+        logger.info(
+            "GameScreen.on_enter mode=%r category=%r ratio=%.3f custom_title=%r custom_len=%d",
+            mode_name,
+            self._category,
+            self._ratio,
+            self._custom_material.get("title", "") if self._custom_material else "",
+            len(self._custom_material.get("content", "")) if self._custom_material else 0,
+        )
         self._setup_mode(mode_name)
 
     def _setup_mode(self, mode_name: str):
@@ -108,6 +119,17 @@ class GameScreen(QWidget):
         # Mode-specific setup
         if mode_name == GameMode.FALLING_TEXT.value:
             self._mode = FallingTextMode(category=self._category, ratio=self._ratio)
+            if not getattr(self._mode, "pinyin_available", True):
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self,
+                    "缺少拼音依赖",
+                    "掉落消除需要 pypinyin 才能按拼音消除汉字。\n"
+                    f"当前错误：{getattr(self._mode, 'pinyin_error', '未知错误')}",
+                )
+                if self.navigate_to:
+                    self.navigate_to("menu")
+                return
             self._falling_widget = self._mode.get_widget()
             self._falling_widget.setStyleSheet(f"""
                 background-color: {COLOR_SKY};
@@ -183,6 +205,12 @@ class GameScreen(QWidget):
 
         # Initialize display content
         if self._display and hasattr(self._mode, 'material'):
+            logger.info(
+                "GameScreen.set_display_material title=%r content_len=%d mode_text_len=%d",
+                self._mode.material.get("title", ""),
+                len(self._mode.material.get("content", "")),
+                len(getattr(self._mode, "text", "") or ""),
+            )
             self._display.set_material(self._mode.material)
 
         # Guard: skip start if text is empty
@@ -289,9 +317,25 @@ class GameScreen(QWidget):
         try:
             if self._engine.state.value != "playing":
                 return
+            before_index = getattr(self._mode, "current_index", None)
+            text_len = len(getattr(self._mode, "text", "") or "") if self._mode else 0
             prev_score = self._engine.scoring.score
             prev_combo = self._engine.scoring.combo
+            logger.info(
+                "GameScreen._on_input input=%r input_len=%d before_cursor=%s text_len=%d state=%s",
+                text,
+                len(text),
+                before_index,
+                text_len,
+                self._engine.state.value,
+            )
             self._engine.process_input(text)
+            logger.info(
+                "GameScreen._on_input after_engine state=%s cursor=%s text_len=%d",
+                self._engine.state.value,
+                getattr(self._mode, "current_index", None),
+                text_len,
+            )
             if self._engine.state.value == "ended":
                 return
             self._update_display()
@@ -385,7 +429,8 @@ class GameScreen(QWidget):
 
         if self._timer_label and hasattr(self._mode, 'time_remaining'):
             remaining = self._mode.time_remaining
-            self._timer_label.setText(f"⏰ {remaining}s")
+            display_remaining = max(0, math.ceil(remaining))
+            self._timer_label.setText(f"⏰ {display_remaining}s")
             if remaining <= 10:
                 self._timer_label.setStyleSheet(_HUD_LABEL_ACCENT.replace(COLOR_CREAM, "#FFE0E0"))
             else:
@@ -467,6 +512,16 @@ class GameScreen(QWidget):
         result["mode"] = self._mode_name
         if self._mode and hasattr(self._mode, "mistake_events"):
             result["mistakes"] = self._mode.mistake_events
+        logger.info(
+            "GameScreen._on_game_over mode=%r result_total=%s correct=%s cpm=%s cursor=%s text_len=%d mistakes=%d",
+            self._mode_name,
+            result.get("total_chars"),
+            result.get("correct_chars"),
+            result.get("cpm"),
+            getattr(self._mode, "current_index", None),
+            len(getattr(self._mode, "text", "") or "") if self._mode else 0,
+            len(result.get("mistakes", [])),
+        )
         self._save_result(result)
         if self.navigate_to:
             self.navigate_to("results", result)

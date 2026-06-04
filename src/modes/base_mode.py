@@ -1,4 +1,5 @@
 """Base class for typing practice modes."""
+import logging
 import random
 import time
 from collections import deque
@@ -6,6 +7,8 @@ from collections import deque
 from src.core.game_state import GameMode
 from src.core.statistics import StatsCalculator
 from src.materials.material_manager import MaterialManager
+
+logger = logging.getLogger(__name__)
 
 
 class BaseTypingMode:
@@ -134,12 +137,28 @@ class BaseSequentialTypingMode(BaseTypingMode):
         self._current_index = 0
         self._correct_count = 0
         self._total_typed = 0
+        logger.info(
+            "%s.set_text text_len=%d preview=%r",
+            type(self).__name__,
+            len(text),
+            text[:40],
+        )
 
     def process_input(self, typed: str) -> dict:
         """Compare typed text against target text character by character."""
         if not self._text:
             return {"correct": 0, "total": 0, "accuracy": 0.0, "finished": False}
 
+        start_index = self._current_index
+        logger.info(
+            "%s.process_input start input=%r input_len=%d cursor=%d text_len=%d expected_next=%r",
+            type(self).__name__,
+            typed,
+            len(typed),
+            self._current_index,
+            len(self._text),
+            self._text[self._current_index:self._current_index + 1],
+        )
         for ch in typed:
             if self._current_index >= len(self._text):
                 break
@@ -154,6 +173,16 @@ class BaseSequentialTypingMode(BaseTypingMode):
                 self._char_states[self._current_index] = 3
 
         accuracy = self.current_accuracy
+        logger.info(
+            "%s.process_input done start_cursor=%d end_cursor=%d text_len=%d correct=%d total=%d finished=%s",
+            type(self).__name__,
+            start_index,
+            self._current_index,
+            len(self._text),
+            self._correct_count,
+            self._total_typed,
+            self.is_game_over(),
+        )
 
         return {
             "correct": self._correct_count,

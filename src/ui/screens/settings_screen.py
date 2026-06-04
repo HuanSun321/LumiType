@@ -72,6 +72,7 @@ class SettingsScreen(QWidget):
         self._config = App.instance().config
         self._built = False
         self._rabbit_preview = None
+        self._content = None
         self._rabbit_preview_timer = QTimer(self)
         self._rabbit_preview_timer.setSingleShot(True)
         self._rabbit_preview_timer.setInterval(1400)
@@ -93,8 +94,18 @@ class SettingsScreen(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         main_layout.addWidget(scroll)
 
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background: transparent;")
+        wrapper_layout = QHBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.addStretch()
+
         container = QWidget()
         container.setStyleSheet("background: transparent;")
+        self._content = container
+        wrapper_layout.addWidget(container)
+        wrapper_layout.addStretch()
+
         layout = QVBoxLayout(container)
         layout.setSpacing(16)
         layout.setContentsMargins(36, 24, 36, 24)
@@ -227,7 +238,7 @@ class SettingsScreen(QWidget):
         self._deco_combo.currentIndexChanged.connect(
             lambda i: self._config.set("falling_deco", self._deco_combo.itemData(i))
         )
-        game_layout.addRow("掉落图案:", self._deco_combo)
+        game_layout.addRow("掉落外框:", self._deco_combo)
 
         game_group.setLayout(game_layout)
         layout.addWidget(game_group)
@@ -328,7 +339,14 @@ class SettingsScreen(QWidget):
         layout.addWidget(display_group)
 
         layout.addStretch()
-        scroll.setWidget(container)
+        scroll.setWidget(wrapper)
+        self._sync_content_width()
+
+    def _sync_content_width(self):
+        if not self._content:
+            return
+        available = max(0, self.width() - 72)
+        self._content.setFixedWidth(min(1180, max(760, available)))
 
     def _on_difficulty_changed(self, value):
         self._config.set("difficulty", value)
@@ -384,6 +402,7 @@ class SettingsScreen(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._sync_content_width()
         self._position_rabbit_preview()
 
     def _on_fullscreen_toggled(self, state):

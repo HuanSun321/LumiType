@@ -13,6 +13,8 @@ from src.constants import (
     COLOR_CREAM, COLOR_PEACH,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class DownloadWorker(QThread):
     progress = pyqtSignal(int, int)
@@ -24,39 +26,67 @@ class DownloadWorker(QThread):
         self._scraper_type = scraper_type
         self._count = count
 
-    def run(self):
-        try:
-            if self._scraper_type == "idiom":
-                from src.materials.scrapers.idiom_fetcher import IdiomFetcher
-                scraper = IdiomFetcher()
-            elif self._scraper_type == "poetry":
-                from src.materials.scrapers.gushiwen import GushiwenScraper
-                scraper = GushiwenScraper()
-            elif self._scraper_type == "news":
-                from src.materials.scrapers.news_rss import NewsRSSScraper
-                scraper = NewsRSSScraper()
-            elif self._scraper_type == "legal":
-                from src.materials.scrapers.legal_scraper import LegalScraper
-                scraper = LegalScraper()
-            else:
-                self.error.emit(f"未知素材源: {self._scraper_type}")
-                return
+    def _create_scraper(self):
+        if self._scraper_type == "idiom":
+            from src.materials.scrapers.idiom_fetcher import IdiomFetcher
+            return IdiomFetcher()
+        if self._scraper_type == "poetry":
+            from src.materials.scrapers.gushiwen import GushiwenScraper
+            return GushiwenScraper()
+        if self._scraper_type == "news":
+            from src.materials.scrapers.news_rss import NewsRssScraper
+            return NewsRssScraper()
+        if self._scraper_type == "legal":
+            from src.materials.scrapers.legal_scraper import LegalScraper
+            return LegalScraper()
+        raise ValueError(f"未知素材源: {self._scraper_type}")
 
+    def run(self):
+        thread_conn = None
+        try:
+            scraper = self._create_scraper()
             from src.app import App
+            logger.info(
+                "MaterialScreen.download start scraper=%s count=%d",
+                type(scraper).__name__,
+                self._count,
+            )
             thread_conn = App.instance().db.create_thread_connection()
             store = MaterialStore(conn=thread_conn)
+            materials = list(scraper.fetch())
+            if self._count > 0:
+                materials = materials[: self._count]
+            total = len(materials)
             new_count = 0
-            total = 0
-            for material in scraper.fetch(self._count):
-                total += 1
+            if total == 0:
+                logger.warning(
+                    "MaterialScreen.download empty result scraper=%s type=%s",
+                    type(scraper).__name__,
+                    self._scraper_type,
+                )
+                self.error.emit("未获取到素材，请检查网络连接或稍后重试。")
+                return
+            for index, material in enumerate(materials, start=1):
                 if store.save(material):
                     new_count += 1
-                self.progress.emit(total, self._count)
+                self.progress.emit(index, total)
 
-            thread_conn.close()
+            logger.info(
+                "MaterialScreen.download done scraper=%s fetched=%d saved=%d",
+                type(scraper).__name__,
+                total,
+                new_count,
+            )
             self.finished.emit(new_count)
         except Exception as e:
-            self.error.emit(str(e))
+            logger.exception(
+                "MaterialScreen.download failed scraper_type=%s",
+                self._scraper_type,
+            )
+            self.error.emit(f"{self._scraper_type}: {e}")
+        finally:
+            if thread_conn is not None:
+                thread_conn.close()
 
 
 class MaterialScreen(QWidget):
@@ -339,6 +369,7 @@ class MaterialScreen(QWidget):
 
     def _on_download_error(self, error_msg: str):
         self._progress_bar.setVisible(False)
+        logger.warning("MaterialScreen.download error=%s", error_msg)
         QMessageBox.warning(self, "下载失败", f"错误: {error_msg}")
 
     def _import_local_text(self):

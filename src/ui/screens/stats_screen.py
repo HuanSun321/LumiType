@@ -1,8 +1,9 @@
+import logging
 from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
-    QDateEdit, QFrame,
+    QDateEdit, QFrame, QSizePolicy, QScrollArea,
 )
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPainterPath
@@ -12,29 +13,39 @@ from src.constants import (
     COLOR_CREAM, COLOR_PEACH, COLOR_SKY, COLOR_ERROR,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _summary_card(label_text: str, value_text: str, emoji: str, bg: str,
                   change_text: str = "", change_positive: bool = True) -> QVBoxLayout:
     card = QVBoxLayout()
-    card.setSpacing(2)
+    card.setSpacing(0)
+    card.setContentsMargins(0, 0, 0, 0)
     emoji_lbl = QLabel(emoji)
     emoji_lbl.setStyleSheet("font-size: 20px;")
     emoji_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    emoji_lbl.setFixedHeight(26)
+    emoji_lbl.setMinimumWidth(80)
     card.addWidget(emoji_lbl)
     value = QLabel(value_text)
     value.setStyleSheet(f"font-size: 28px; font-weight: bold; color: {COLOR_ACCENT};")
     value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    value.setFixedHeight(38)
+    value.setMinimumWidth(80)
     card.addWidget(value)
     label = QLabel(label_text)
     label.setStyleSheet(f"font-size: 13px; color: #A08888;")
     label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setFixedHeight(22)
+    label.setMinimumWidth(80)
     card.addWidget(label)
-    if change_text:
-        change_color = "#8BD3A8" if change_positive else "#FF6B8A"
-        change = QLabel(change_text)
-        change.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {change_color};")
-        change.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        card.addWidget(change)
+    change_color = "#8BD3A8" if change_positive else "#FF6B8A"
+    change = QLabel(change_text or " ")
+    change.setStyleSheet(f"font-size: 12px; font-weight: bold; color: {change_color};")
+    change.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    change.setFixedHeight(18)
+    change.setMinimumWidth(80)
+    card.addWidget(change)
     return card
 
 
@@ -128,21 +139,47 @@ class StatsScreen(QWidget):
         super().__init__()
         self._date_start = None
         self._date_end = None
+        self._content = None
+        self._scroll = None
+        self._footer = None
+        self._clear_btn = None
 
     def on_enter(self, data: dict):
-        self._build_ui()
+        if self.layout() is None:
+            self._build_ui()
+        else:
+            self._refresh_stats()
 
     def _build_ui(self):
-        old = self.layout()
-        if old:
-            while old.count():
-                item = old.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+        root_layout = QVBoxLayout(self)
+        root_layout.setSpacing(12)
+        root_layout.setContentsMargins(36, 24, 36, 24)
 
-        layout = QVBoxLayout(self)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        root_layout.addWidget(self._scroll, 1)
+
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background: transparent;")
+        wrapper_layout = QHBoxLayout(wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.addStretch()
+
+        content = QWidget()
+        content.setObjectName("statsContent")
+        content.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        content.setStyleSheet("background: transparent;")
+        self._content = content
+        wrapper_layout.addWidget(content)
+        wrapper_layout.addStretch()
+        self._scroll.setWidget(wrapper)
+
+        layout = QVBoxLayout(content)
         layout.setSpacing(16)
-        layout.setContentsMargins(36, 24, 36, 24)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         # Header
         header = QHBoxLayout()
@@ -273,14 +310,21 @@ class StatsScreen(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setMinimumHeight(240)
         layout.addWidget(self._table)
 
         # Bottom bar
-        bottom_bar = QHBoxLayout()
+        self._footer = QWidget()
+        self._footer.setObjectName("statsFooter")
+        self._footer.setMinimumHeight(54)
+        self._footer.setStyleSheet("background: transparent;")
+        bottom_bar = QHBoxLayout(self._footer)
+        bottom_bar.setContentsMargins(0, 0, 0, 0)
         bottom_bar.addStretch()
-        clear_btn = QPushButton("清空历史记录")
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(f"""
+        self._clear_btn = QPushButton("清空历史记录")
+        self._clear_btn.setMinimumHeight(42)
+        self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_btn.setStyleSheet(f"""
             QPushButton {{
                 background-color: #FFE0E0;
                 color: #C06060;
@@ -295,11 +339,22 @@ class StatsScreen(QWidget):
                 border-color: {COLOR_ERROR};
             }}
         """)
-        clear_btn.clicked.connect(self._clear_history)
-        bottom_bar.addWidget(clear_btn)
-        layout.addLayout(bottom_bar)
+        self._clear_btn.clicked.connect(self._clear_history)
+        bottom_bar.addWidget(self._clear_btn)
+        root_layout.addWidget(self._footer, 0)
 
         self._refresh_stats()
+        self._sync_content_width()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_content_width()
+
+    def _sync_content_width(self):
+        if not self._content:
+            return
+        available = max(0, self.width() - 72)
+        self._content.setFixedWidth(min(1180, max(760, available)))
 
     def _set_quick_date(self, days: int):
         today = QDate.currentDate()
@@ -330,6 +385,14 @@ class StatsScreen(QWidget):
         self._update_chart(start, end)
         self._update_mistake_panel(start, end)
         self._load_history(start, end)
+        logger.info(
+            "StatsScreen.refresh start=%s end=%s count=%s avg_cpm=%s rows=%s",
+            start,
+            end,
+            current.get("count"),
+            current.get("avg_cpm"),
+            self._table.rowCount() if self._table else None,
+        )
 
     def _query_stats(self, start: str, end: str) -> dict:
         db = App.instance().db

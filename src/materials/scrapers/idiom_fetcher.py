@@ -1,18 +1,23 @@
+import json
 import logging
+from pathlib import Path
 
+from src.utils.paths import get_data_dir
 from .base_scraper import BaseScraper
 
 
 class IdiomFetcher(BaseScraper):
     name = "成语数据集"
-    description = "从 chinese-xinhua GitHub 数据集获取成语"
-    BASE_URL = "https://raw.githubusercontent.com/pwxcoo/chinese-xinhua/master/data/idiom.json"
+    description = "从本地内置成语包加载成语"
+    DATA_FILE = Path(get_data_dir()) / "common_idioms.json"
 
     def fetch(self) -> list[dict]:
         materials = []
         try:
-            resp = self._throttled_get(self.BASE_URL)
-            data = resp.json()
+            if not self.DATA_FILE.exists():
+                raise FileNotFoundError(f"missing built-in idiom file: {self.DATA_FILE}")
+            with self.DATA_FILE.open("r", encoding="utf-8") as f:
+                data = json.load(f)
             for item in data:
                 word = item.get("word", "")
                 if len(word) >= 4 and self._is_cjk(word):
@@ -20,10 +25,11 @@ class IdiomFetcher(BaseScraper):
                         "title": word,
                         "content": word,
                         "source": self.name,
-                        "category": "成语",
+                        "category": "idiom",
                     })
-        except Exception as e:
-            logging.warning("IdiomFetcher: fetch failed: %s", e)
+        except Exception:
+            logging.exception("IdiomFetcher: fetch failed")
+            raise
         return materials
 
     @staticmethod

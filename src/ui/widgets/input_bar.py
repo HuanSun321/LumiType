@@ -1,5 +1,9 @@
+import logging
+
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QLineEdit
 from PyQt6.QtCore import Qt, pyqtSignal, QEvent
+
+logger = logging.getLogger(__name__)
 
 
 class InputBar(QWidget):
@@ -59,17 +63,32 @@ class InputBar(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is self._line_edit and event.type() == QEvent.Type.KeyPress:
-            if (self._direct_mode
-                    and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)):
-                self.enter_pressed.emit()
-                self._clearing = True
-                self._line_edit.clear()
-                self._clearing = False
-                return True
+            if self._direct_mode:
+                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    self.enter_pressed.emit()
+                    self._clearing = True
+                    self._line_edit.clear()
+                    self._clearing = False
+                    return True
+                text = event.text().lower()
+                if len(text) == 1 and "a" <= text <= "z":
+                    logger.info("InputBar.direct_keypress committed=%r", text)
+                    self.text_committed.emit(text)
+                    self._clearing = True
+                    self._line_edit.clear()
+                    self._clearing = False
+                    return True
 
         if obj is self._line_edit and event.type() == QEvent.Type.InputMethod:
             preedit = event.preeditString()
             commit = event.commitString()
+            logger.info(
+                "InputBar.input_method preedit=%r commit=%r is_composing=%s current_text=%r",
+                preedit,
+                commit,
+                self._is_composing,
+                self._line_edit.text(),
+            )
 
             if preedit and not commit:
                 self._is_composing = True
@@ -89,6 +108,14 @@ class InputBar(QWidget):
     def _on_text_changed(self, text: str):
         if self._clearing:
             return
+        logger.info(
+            "InputBar.text_changed text=%r len=%d direct=%s composing=%s pending=%r",
+            text,
+            len(text),
+            self._direct_mode,
+            self._is_composing,
+            self._pending_commit,
+        )
 
         # Direct mode: emit each character immediately, no IME logic
         if self._direct_mode:
@@ -111,6 +138,7 @@ class InputBar(QWidget):
         committed = self._pending_commit if self._pending_commit else text
         self._pending_commit = ""
         self.composing_changed.emit("")
+        logger.info("InputBar.emit_committed committed=%r len=%d", committed, len(committed))
         self.text_committed.emit(committed)
 
         self._clearing = True

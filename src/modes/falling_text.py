@@ -1,17 +1,20 @@
 """Falling text mode: characters fall from the top, type them before they reach the bottom."""
+import logging
 import random
 
 from PyQt6.QtCore import QPoint, QTimer, Qt
-from PyQt6.QtGui import QFont, QPainter, QTransform
+from PyQt6.QtGui import QBrush, QColor, QFont, QPainter, QTransform
 from PyQt6.QtWidgets import QGraphicsLineItem, QGraphicsScene, QGraphicsView, QVBoxLayout, QWidget
 from src.core.game_state import GameMode
 from src.materials.material_manager import MaterialManager
 from src.modes.base_mode import BaseTypingMode
 from src.constants import (
     MAX_LIVES, MAX_ON_SCREEN, DANGER_ZONE_Y,
-    SCENE_WIDTH, SCENE_HEIGHT, MAX_FALL_SPEED,
+    SCENE_WIDTH, SCENE_HEIGHT, MAX_FALL_SPEED, COLOR_SKY,
 )
 from src.ui.widgets.falling_item import FallingCharItem
+
+logger = logging.getLogger(__name__)
 
 
 class FallingItem:
@@ -38,8 +41,21 @@ class FallingTextMode(BaseTypingMode):
         self._category = category
         self._ratio = ratio
         self._materials = MaterialManager.instance().get_materials(category=category)
+        self._pinyin_available = True
+        self._pinyin_error = ""
+        self._ignore_next_ime_commit = False
         self._char_pool = self._build_char_pool()
-        self._pinyin_map = self._build_pinyin_map()
+        if self._char_pool:
+            self._pinyin_map = self._build_pinyin_map()
+        else:
+            self._pinyin_map = {}
+            self._pinyin_error = "no CJK characters available from materials"
+        if self._char_pool and not self._pinyin_map:
+            self._pinyin_available = False
+            if not self._pinyin_error:
+                self._pinyin_error = "pypinyin did not produce any pinyin mappings"
+        elif not self._char_pool:
+            self._pinyin_available = False
         self.set_text("".join(self._char_pool))
         self._items: set[FallingCharItem] = set()
         self._target_item: FallingCharItem | None = None
@@ -60,6 +76,14 @@ class FallingTextMode(BaseTypingMode):
     @property
     def items(self) -> set[FallingCharItem]:
         return self._items
+
+    @property
+    def pinyin_available(self) -> bool:
+        return self._pinyin_available
+
+    @property
+    def pinyin_error(self) -> str:
+        return self._pinyin_error
 
     @property
     def material(self) -> dict:
@@ -98,11 +122,13 @@ class FallingTextMode(BaseTypingMode):
             layout.setContentsMargins(0, 0, 0, 0)
 
             self._scene = QGraphicsScene(0, 0, SCENE_WIDTH, SCENE_HEIGHT)
+            self._scene.setBackgroundBrush(QBrush(QColor(COLOR_SKY)))
             self._view = QGraphicsView(self._scene)
-            self._view.setStyleSheet("background: transparent; border: none;")
+            self._view.setStyleSheet(f"background: {COLOR_SKY}; border: none;")
             self._view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self._view.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             self._view.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            self._view.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
             layout.addWidget(self._view)
             self._draw_danger_line()
         return self._container
@@ -114,18 +140,68 @@ class FallingTextMode(BaseTypingMode):
         hit = False
         for ch in typed:
             ch = ch.lower()
+            if self._is_cjk(ch):
+                if self._ignore_next_ime_commit:
+                    logger.info("FallingTextMode.input ignored_ime_commit=%r", ch)
+                    self._ignore_next_ime_commit = False
+                    self._current_pinyin = ""
+                    continue
+                matched = self._find_char_match(ch)
+                if matched:
+                    self._eliminate_match(matched)
+                    hit = True
+                else:
+                    expected = self._target_item.char if self._target_item else ch
+                    self._record_mistake(expected, ch, self._total_typed)
+                    self._record_char(False)
+                self._current_pinyin = ""
+                continue
             if not ch.isalpha():
                 self._current_pinyin = ""
                 continue
             self._current_pinyin += ch
             matched = self._find_pinyin_match(self._current_pinyin)
+            prefix_match = self._find_prefix_match(self._current_pinyin)
+            logger.info(
+                "FallingTextMode.input pinyin_state target=%r readings=%r buffer=%r exact=%r prefix=%r",
+                self._target_item.char if self._target_item else "",
+                self._pinyin_map.get(self._target_item.char, []) if self._target_item else [],
+                self._current_pinyin,
+                matched.char if matched else "",
+                prefix_match.char if prefix_match else "",
+            )
             if matched:
-                self._record_char(True)
-                matched.eliminate()
+                logger.info(
+                    "FallingTextMode.input exact_match buffer=%r char=%r readings=%r",
+                    self._current_pinyin,
+                    matched.char,
+                    self._pinyin_map.get(matched.char, []),
+                )
+                self._eliminate_match(matched)
                 self._current_pinyin = ""
-                if self._target_item is matched:
-                    self._target_item = None
                 hit = True
+            elif not prefix_match:
+                logger.info("FallingTextMode.input reset_bad_prefix buffer=%r ch=%r", self._current_pinyin, ch)
+                self._current_pinyin = ch
+                matched = self._find_pinyin_match(self._current_pinyin)
+                prefix_match = self._find_prefix_match(self._current_pinyin)
+                logger.info(
+                    "FallingTextMode.input pinyin_state_after_reset target=%r readings=%r buffer=%r exact=%r prefix=%r",
+                    self._target_item.char if self._target_item else "",
+                    self._pinyin_map.get(self._target_item.char, []) if self._target_item else [],
+                    self._current_pinyin,
+                    matched.char if matched else "",
+                    prefix_match.char if prefix_match else "",
+                )
+                if matched:
+                    self._eliminate_match(matched)
+                    self._current_pinyin = ""
+                    hit = True
+                elif not prefix_match:
+                    expected = self._target_item.char if self._target_item else ""
+                    self._record_mistake(expected, ch, self._total_typed)
+                    self._record_char(False)
+                    self._current_pinyin = ""
             elif len(self._current_pinyin) > 8:
                 expected = self._target_item.char if self._target_item else ""
                 self._record_mistake(expected, self._current_pinyin, self._total_typed)
@@ -133,6 +209,24 @@ class FallingTextMode(BaseTypingMode):
                 self._current_pinyin = ""
         self._update_preview()
         return {"hit": hit, "score": self._engine.scoring.score if self._engine else 0}
+
+    def process_composing(self, composing: str) -> None:
+        """Use IME preedit pinyin for preview and exact pinyin hits."""
+        cleaned = "".join(ch.lower() if ch.isalpha() else " " for ch in composing)
+        token = cleaned.split()[-1] if cleaned.split() else ""
+        self._current_pinyin = token
+        matched = self._find_pinyin_match(token) if token else None
+        if matched:
+            logger.info(
+                "FallingTextMode.composing exact_match token=%r char=%r readings=%r",
+                token,
+                matched.char,
+                self._pinyin_map.get(matched.char, []),
+            )
+            self._eliminate_match(matched)
+            self._current_pinyin = ""
+            self._ignore_next_ime_commit = True
+        self._update_preview()
 
     def on_tick(self, dt: float = 0.016) -> None:
         # Spawn new items
@@ -178,6 +272,7 @@ class FallingTextMode(BaseTypingMode):
         x = random.uniform(30, SCENE_WIDTH - 80)
         readings = self._pinyin_map.get(char, [""])
         pinyin_hint = readings[0] if readings else ""
+        logger.info("FallingTextMode.spawn char=%r readings=%r", char, readings)
         item = FallingCharItem(char, x, -50, self._fall_speed, self._font, pinyin=pinyin_hint)
         self._scene.addItem(item)
         self._items.add(item)
@@ -202,7 +297,7 @@ class FallingTextMode(BaseTypingMode):
             for ch in m.get("content", ""):
                 if self._is_cjk(ch):
                     chars.add(ch)
-        return list(chars) if chars else list("天地人和风雨山水花鸟鱼虫")
+        return list(chars)
 
     def _build_pinyin_map(self) -> dict[str, list[str]]:
         mapping: dict[str, list[str]] = {}
@@ -213,7 +308,9 @@ class FallingTextMode(BaseTypingMode):
                 if py_list and py_list[0]:
                     mapping[ch] = py_list[0]
         except ImportError:
-            pass
+            self._pinyin_available = False
+            self._pinyin_error = "pypinyin is not installed"
+            logger.warning("FallingTextMode: %s", self._pinyin_error)
         return mapping
 
     def _base_spawn_interval(self) -> float:
@@ -227,6 +324,8 @@ class FallingTextMode(BaseTypingMode):
         return 0x4E00 <= cp <= 0x9FFF or 0x3400 <= cp <= 0x4DBF or 0x20000 <= cp <= 0x2A6DF
 
     def _find_pinyin_match(self, value: str) -> FallingCharItem | None:
+        if not value:
+            return None
         best = None
         best_y = -1.0
         for item in self._items:
@@ -236,6 +335,26 @@ class FallingTextMode(BaseTypingMode):
                 best = item
                 best_y = item.pos().y()
         return best
+
+    def _find_char_match(self, value: str) -> FallingCharItem | None:
+        best = None
+        best_y = -1.0
+        for item in self._items:
+            if item.state == FallingCharItem.STATE_ELIMINATED:
+                continue
+            if item.char == value and item.pos().y() > best_y:
+                best = item
+                best_y = item.pos().y()
+        return best
+
+    def _eliminate_match(self, item: FallingCharItem):
+        self._record_char(True)
+        item.eliminate()
+        if self._target_item is item:
+            self._target_item = None
+        self._items.discard(item)
+        if self._scene:
+            self._scene.removeItem(item)
 
     def _find_prefix_match(self, prefix: str) -> FallingCharItem | None:
         best = None

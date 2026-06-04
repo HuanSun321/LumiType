@@ -1,8 +1,11 @@
+import logging
 import time
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 from src.core.game_state import GameState, GameMode
 from src.core.scoring import ScoringEngine
 from src.constants import TICK_INTERVAL_MS, LOGIC_INTERVAL_MS
+
+logger = logging.getLogger(__name__)
 
 
 class GameEngine(QObject):
@@ -48,6 +51,12 @@ class GameEngine(QObject):
         self._start_time = self._elapsed = 0.0
         self._paused_elapsed = 0.0
         mode.setup(self)
+        logger.info(
+            "GameEngine.start mode=%s text_len=%s cursor=%s",
+            type(mode).__name__,
+            len(getattr(mode, "text", "") or ""),
+            getattr(mode, "current_index", None),
+        )
         self._start_time = self._get_time()
         self._tick_timer.start()
         self._logic_timer.start()
@@ -74,6 +83,15 @@ class GameEngine(QObject):
     def end(self):
         if self._state == GameState.ENDED:
             return
+        logger.info(
+            "GameEngine.end requested mode=%s elapsed=%.3f cursor=%s text_len=%s score=%s combo=%s",
+            type(self._mode).__name__ if self._mode else None,
+            self._get_time() - self._start_time if self._start_time else 0,
+            getattr(self._mode, "current_index", None),
+            len(getattr(self._mode, "text", "") or "") if self._mode else 0,
+            self._scoring.score,
+            self._scoring.combo,
+        )
         self._state = GameState.ENDED
         self._tick_timer.stop()
         self._logic_timer.stop()
@@ -100,14 +118,41 @@ class GameEngine(QObject):
 
     def process_input(self, text: str):
         if self._state == GameState.PLAYING and self._mode:
+            before_index = getattr(self._mode, "current_index", None)
+            text_len = len(getattr(self._mode, "text", "") or "")
+            logger.info(
+                "GameEngine.process_input before input=%r input_len=%d cursor=%s text_len=%d",
+                text,
+                len(text),
+                before_index,
+                text_len,
+            )
             self._mode.process_input(text)
-            if hasattr(self._mode, "is_game_over") and self._mode.is_game_over():
+            after_index = getattr(self._mode, "current_index", None)
+            is_over = hasattr(self._mode, "is_game_over") and self._mode.is_game_over()
+            logger.info(
+                "GameEngine.process_input after cursor=%s text_len=%d is_game_over=%s",
+                after_index,
+                text_len,
+                is_over,
+            )
+            if is_over:
+                logger.info(
+                    "GameEngine.process_input ending because mode.is_game_over cursor=%s text_len=%d",
+                    after_index,
+                    text_len,
+                )
                 self.end()
 
     def _on_tick(self):
         if self._state == GameState.PLAYING and self._mode:
             self._mode.on_tick(TICK_INTERVAL_MS / 1000.0)
             if hasattr(self._mode, "is_game_over") and self._mode.is_game_over():
+                logger.info(
+                    "GameEngine._on_tick ending because mode.is_game_over cursor=%s text_len=%s",
+                    getattr(self._mode, "current_index", None),
+                    len(getattr(self._mode, "text", "") or ""),
+                )
                 self.end()
 
     def _on_logic(self):

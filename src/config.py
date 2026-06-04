@@ -17,6 +17,9 @@ _CONFIG_VALIDATORS = {
     "fullscreen_mode": lambda v: isinstance(v, bool),
     "auto_update_materials": lambda v: isinstance(v, bool),
     "theme": lambda v: isinstance(v, str) and v in ("light", "dark", "auto"),
+    "falling_deco": lambda v: isinstance(v, str) and v in (
+        "random", "star", "heart", "flower", "bubble", "cloud", "butterfly", "rainbow", "crown"
+    ),
 }
 
 

@@ -24,7 +24,6 @@ class GushiwenScraper(BaseScraper):
                 if not title_el or not content_el:
                     continue
                 title = title_el.get_text(strip=True)
-                # Remove source tags from content
                 for tag in content_el.select("a, .source"):
                     tag.decompose()
                 content = content_el.get_text(strip=True)
@@ -33,7 +32,7 @@ class GushiwenScraper(BaseScraper):
                         "title": title,
                         "content": content,
                         "source": self.name,
-                        "category": "古诗词",
+                        "category": "poetry",
                     })
         except Exception as e:
             logging.warning("GushiwenScraper: fetch failed: %s", e)

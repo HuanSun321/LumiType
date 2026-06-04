@@ -1,3 +1,5 @@
+import logging
+
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QPushButton,
     QComboBox,
@@ -9,6 +11,8 @@ from src.constants import (
     COLOR_ACCENT, COLOR_PINK_LIGHT, COLOR_LAVENDER, COLOR_MINT,
     COLOR_CREAM, COLOR_PEACH, COLOR_SKY,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ModeCard(QFrame):
@@ -215,6 +219,15 @@ class MenuScreen(QWidget):
         config_ratio = App.instance().config.get("content_ratio")
         ratio = config_ratio / 100.0 if config_ratio else 1.0
         review_material = App.instance().db.build_review_material()
+        logger.info(
+            "MenuScreen.today_training category=%r config_ratio=%r ratio=%.3f review_exists=%s review_title=%r review_len=%d",
+            category,
+            config_ratio,
+            ratio,
+            bool(review_material),
+            review_material.get("title", "") if review_material else "",
+            len(review_material.get("content", "")) if review_material else 0,
+        )
 
         data = {
             "mode": GameMode.FOLLOW_TYPING.value,
@@ -227,6 +240,7 @@ class MenuScreen(QWidget):
             data["ratio"] = 1.0
 
         if self.navigate_to:
+            logger.info("MenuScreen.today_training navigate data_keys=%s", sorted(data.keys()))
             self.navigate_to("game", data)
 
     def on_enter(self, data: dict):

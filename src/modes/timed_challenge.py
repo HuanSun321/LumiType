@@ -91,6 +91,9 @@ class TimedChallengeMode(BaseSequentialTypingMode):
             text = self._material.get("content", "")
         if self._ratio < 1.0 and text and self._category in ("article", "news"):
             text = text[:max(1, int(len(text) * self._ratio))]
+        if self._material.get("content", "") != text:
+            self._material.setdefault("original_content", self._material.get("content", ""))
+            self._material["content"] = text
         self.set_text(text.strip())
         if self._category == "idiom":
             self._next_material, _ = self.load_idiom_batch(self._mm, batch_size=10)

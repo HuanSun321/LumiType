@@ -259,7 +259,8 @@ class DatabaseManager:
         if not chars:
             return {}
         text = "".join(chars)
-        while len(text) < min(24, len(chars) * 4):
+        min_length = 24
+        while len(text) < min_length:
             text += "".join(chars)
         return {
             "title": "今日错字复训",
