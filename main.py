@@ -1,9 +1,11 @@
-import sys
+﻿import sys
 import logging
-from src.utils.paths import get_app_dir
+from src.utils.paths import get_app_dir, migrate_legacy_data
 
 
 def main():
+    migrate_legacy_data()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -28,3 +30,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

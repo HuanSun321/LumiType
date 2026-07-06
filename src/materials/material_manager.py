@@ -33,6 +33,8 @@ class MaterialManager:
         with self._lock:
             self._ensure_loaded()
             pool = self._filter_unlocked(category=category, difficulty=difficulty)
+            if not pool and category == "favorite":
+                return {"title": "暂无收藏素材", "category": "favorite", "author": "", "content": ""}
             if not pool:
                 pool = self._materials
             return random.choice(pool) if pool else self._fallback_materials()[0]
@@ -101,10 +103,13 @@ class MaterialManager:
     def _filter_unlocked(self, category: str | None = None, difficulty: int | None = None) -> list[dict]:
         pool = self._materials
         if category:
-            cats = {"article"} if category == "article" else {category}
-            if category == "article":
-                cats.add("news")
-            pool = [m for m in pool if m.get("category") in cats]
+            if category == "favorite":
+                pool = [m for m in pool if bool(m.get("is_favorite"))]
+            else:
+                cats = {"article"} if category == "article" else {category}
+                if category == "article":
+                    cats.add("news")
+                pool = [m for m in pool if m.get("category") in cats]
         if difficulty:
             pool = [m for m in pool if m.get("difficulty") == difficulty]
         return pool

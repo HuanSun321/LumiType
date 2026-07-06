@@ -19,6 +19,7 @@ class InputBar(QWidget):
     text_committed = pyqtSignal(str)
     composing_changed = pyqtSignal(str)
     enter_pressed = pyqtSignal()
+    backspace_requested = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -63,6 +64,13 @@ class InputBar(QWidget):
 
     def eventFilter(self, obj, event):
         if obj is self._line_edit and event.type() == QEvent.Type.KeyPress:
+            if event.key() == Qt.Key.Key_Backspace:
+                self.backspace_requested.emit()
+                self._clearing = True
+                self._line_edit.clear()
+                self._clearing = False
+                return True
+
             if self._direct_mode:
                 if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                     self.enter_pressed.emit()

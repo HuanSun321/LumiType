@@ -119,7 +119,7 @@ class MenuScreen(QWidget):
         cat_row.addWidget(cat_label)
 
         self._cat_combo = QComboBox()
-        self._cat_combo.addItems(["全部", "诗词", "成语", "文章", "新闻", "法律"])
+        self._cat_combo.addItems(["全部", "诗词", "成语", "文章", "新闻", "法律", "收藏"])
         self._cat_combo.setFixedWidth(130)
         self._cat_combo.setStyleSheet(f"""
             QComboBox {{
@@ -199,7 +199,15 @@ class MenuScreen(QWidget):
         layout.addLayout(nav_layout)
 
     def _get_category(self) -> str | None:
-        cat_map = {"全部": None, "诗词": "poetry", "成语": "idiom", "文章": "article", "新闻": "news", "法律": "legal"}
+        cat_map = {
+            "全部": None,
+            "诗词": "poetry",
+            "成语": "idiom",
+            "文章": "article",
+            "新闻": "news",
+            "法律": "legal",
+            "收藏": "favorite",
+        }
         return cat_map.get(self._cat_combo.currentText())
 
     def _on_mode_selected(self, mode: str):

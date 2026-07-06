@@ -234,6 +234,8 @@ class TextDisplayWidget(QWidget):
     def _cursor_y(self) -> float:
         if 0 <= self._cursor_pos < len(self._char_positions):
             return self._char_positions[self._cursor_pos][2]
+        if self._cursor_pos >= len(self._text) and self._char_positions:
+            return self._char_positions[-1][2]
         return self._margin
 
     def _update_viewport(self):

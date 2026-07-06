@@ -106,6 +106,27 @@ class RuntimeContractTests(unittest.TestCase):
 
         self.assertEqual(widget._layout_mode, "prose")
 
+    def test_text_display_keeps_viewport_at_end_when_cursor_reaches_text_length(self):
+        ensure_qt_app()
+        from src.ui.widgets.text_display import TextDisplayWidget
+
+        text = ("abcdefghij" * 18) + "."
+        widget = TextDisplayWidget()
+        widget.resize(220, 150)
+        widget.set_material({
+            "title": "long article",
+            "category": "news",
+            "content": text,
+        })
+        widget._recalc_layout()
+
+        widget.set_cursor_position(len(text) - 1)
+        viewport_before_finish = widget._viewport_y
+        widget.set_cursor_position(len(text))
+
+        self.assertGreater(viewport_before_finish, 0)
+        self.assertGreaterEqual(widget._viewport_y, viewport_before_finish - widget._line_height)
+
     def test_keyboard_rabbit_supports_runtime_scale(self):
         ensure_qt_app()
         from src.ui.widgets.keyboard_rabbit import KeyboardRabbitWidget
@@ -135,6 +156,36 @@ class RuntimeContractTests(unittest.TestCase):
         painter.end()
 
         self.assertFalse(pixmap.isNull())
+
+    def test_keyboard_rabbit_ears_are_anchored_to_head(self):
+        ensure_qt_app()
+        from src.ui.widgets.keyboard_rabbit import KeyboardRabbitWidget
+
+        rabbit = KeyboardRabbitWidget()
+        hx, hy = 160, 65
+
+        left_base, _, right_base, _ = rabbit._ear_geometry(hx, hy)
+
+        self.assertLess(abs(left_base.x() - (hx - 18)), 1)
+        self.assertLess(abs(right_base.x() - (hx + 18)), 1)
+        self.assertLess(abs(left_base.y() - (hy - 28)), 1)
+        self.assertLess(abs(right_base.y() - (hy - 28)), 1)
+
+    def test_keyboard_rabbit_typing_pose_keeps_shoulder_stable_and_moves_paw(self):
+        ensure_qt_app()
+        from src.ui.widgets.keyboard_rabbit import KeyboardRabbitWidget
+
+        rabbit = KeyboardRabbitWidget()
+        body_cx, body_cy = 160, 97
+
+        rest = rabbit._right_arm_pose(body_cx, body_cy)
+        rabbit.highlight_pinyin("u")
+        for _ in range(12):
+            rabbit._right_arm.update()
+        typing = rabbit._right_arm_pose(body_cx, body_cy)
+
+        self.assertEqual(rest["shoulder"], typing["shoulder"])
+        self.assertNotEqual(round(rest["paw"].x()), round(typing["paw"].x()))
 
     def test_falling_mode_accepts_direct_chinese_commit(self):
         ensure_qt_app()
@@ -270,6 +321,22 @@ class RuntimeContractTests(unittest.TestCase):
         QTest.keyClicks(input_bar._line_edit, "gui")
 
         self.assertEqual(emitted, ["g", "u", "i"])
+
+    def test_input_bar_emits_backspace_requested(self):
+        ensure_qt_app()
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtTest import QTest
+        from src.ui.widgets.input_bar import InputBar
+
+        input_bar = InputBar()
+        backspaces = []
+        input_bar.backspace_requested.connect(lambda: backspaces.append(True))
+        input_bar.show()
+        input_bar.setFocus()
+
+        QTest.keyClick(input_bar._line_edit, Qt.Key.Key_Backspace)
+
+        self.assertEqual(backspaces, [True])
 
     def test_timed_hud_formats_remaining_seconds_as_integer(self):
         ensure_qt_app()
@@ -537,6 +604,32 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(event["position"], 0)
         self.assertEqual(event["context"], "天地")
 
+    def test_follow_typing_backspace_reverts_previous_character(self):
+        from src.modes.follow_typing import FollowTypingMode
+
+        mode = FollowTypingMode(material={
+            "title": "Backspace test",
+            "category": "article",
+            "content": "abc",
+        })
+        mode.process_input("a")
+        mode.process_input("x")
+
+        self.assertEqual(mode.current_index, 2)
+        self.assertEqual(mode.current_accuracy, 0.5)
+        self.assertEqual(len(mode.mistake_events), 1)
+
+        self.assertTrue(mode.backspace())
+
+        self.assertEqual(mode.current_index, 1)
+        self.assertEqual(mode.char_states, [1, 3, 0])
+        self.assertEqual(mode.current_accuracy, 1.0)
+        self.assertEqual(mode.mistake_events, [])
+
+        mode.process_input("b")
+        self.assertEqual(mode.current_index, 2)
+        self.assertEqual(mode.current_accuracy, 1.0)
+
     def test_follow_typing_material_matches_truncated_practice_text(self):
         from src.modes.follow_typing import FollowTypingMode
 
@@ -643,6 +736,71 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertEqual(favorite["is_favorite"], 1)
         finally:
             manager.close()
+
+    def test_local_docx_import_extracts_paragraphs_as_material(self):
+        import tempfile
+        import zipfile
+        from pathlib import Path
+        from src.materials.document_importer import load_local_materials
+
+        document_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+            <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+              <w:body>
+                <w:p><w:r><w:t>第一段标题</w:t></w:r></w:p>
+                <w:p><w:r><w:t>第二段正文内容</w:t></w:r></w:p>
+              </w:body>
+            </w:document>
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "sample.docx"
+            with zipfile.ZipFile(docx_path, "w") as archive:
+                archive.writestr("word/document.xml", document_xml)
+
+            materials = load_local_materials(docx_path)
+
+        self.assertEqual(len(materials), 1)
+        self.assertEqual(materials[0]["title"], "第一段标题")
+        self.assertIn("第二段正文内容", materials[0]["content"])
+        self.assertEqual(materials[0]["category"], "legal")
+        self.assertIn("Word文档", materials[0]["tags"])
+
+    def test_local_import_rejects_unsupported_file_type(self):
+        import tempfile
+        from pathlib import Path
+        from src.materials.document_importer import load_local_materials
+
+        with tempfile.TemporaryDirectory() as tmp:
+            file_path = Path(tmp) / "sample.pdf"
+            file_path.write_text("content", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                load_local_materials(file_path)
+
+    def test_material_manager_filters_favorite_materials(self):
+        from src.materials.material_manager import MaterialManager
+
+        manager = MaterialManager.__new__(MaterialManager)
+        manager._materials = [
+            {"title": "normal", "category": "article", "content": "normal", "is_favorite": 0},
+            {"title": "favorite", "category": "news", "content": "favorite", "is_favorite": 1},
+        ]
+
+        favorites = manager._filter_unlocked(category="favorite")
+
+        self.assertEqual([m["title"] for m in favorites], ["favorite"])
+
+    def test_menu_screen_category_supports_favorite(self):
+        ensure_qt_app()
+        from src.ui.screens.menu_screen import MenuScreen
+
+        screen = MenuScreen()
+        try:
+            self.assertGreaterEqual(screen._cat_combo.findText("收藏"), 0)
+            screen._cat_combo.setCurrentText("收藏")
+
+            self.assertEqual(screen._get_category(), "favorite")
+        finally:
+            screen.deleteLater()
 
     def test_material_download_worker_uses_fetch_without_count_argument(self):
         ensure_qt_app()
@@ -796,14 +954,45 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(materials[0]["content"], "人民网新闻正文内容用于测试")
         self.assertEqual(materials[0]["source"], "新闻RSS")
 
-    def test_news_rss_scraper_uses_title_when_feed_has_no_summary(self):
+    def test_news_rss_scraper_fetches_article_body_when_feed_has_no_summary(self):
         from types import SimpleNamespace
         from unittest.mock import patch
         from src.materials.scrapers.news_rss import NewsRssScraper
 
-        title = "人民网新闻标题可以作为短素材"
+        title = "Short news title"
+        article_body = "This is the linked article body. " * 8
         feed = SimpleNamespace(entries=[
-            SimpleNamespace(title=title),
+            SimpleNamespace(title=title, link="https://example.com/news/1.html"),
+        ])
+        rss_response = SimpleNamespace(text="<rss></rss>", encoding="")
+        article_response = SimpleNamespace(text=f"""
+            <html><body><article>
+                <p>{article_body}</p>
+                <p>责任编辑：测试</p>
+            </article></body></html>
+        """, encoding="")
+
+        with patch.object(
+            NewsRssScraper,
+            "_throttled_get",
+            autospec=True,
+            side_effect=[rss_response, article_response],
+        ):
+            with patch("src.materials.scrapers.news_rss.feedparser.parse", return_value=feed):
+                materials = NewsRssScraper().fetch()
+
+        self.assertEqual(len(materials), 1)
+        self.assertIn("linked article body", materials[0]["content"])
+        self.assertNotIn("责任编辑", materials[0]["content"])
+        self.assertEqual(materials[0]["category"], "news")
+
+    def test_news_rss_scraper_does_not_save_title_only_material(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from src.materials.scrapers.news_rss import NewsRssScraper
+
+        feed = SimpleNamespace(entries=[
+            SimpleNamespace(title="Short news title"),
         ])
         response = SimpleNamespace(text="<rss></rss>", encoding="")
 
@@ -811,9 +1000,7 @@ class RuntimeContractTests(unittest.TestCase):
             with patch("src.materials.scrapers.news_rss.feedparser.parse", return_value=feed):
                 materials = NewsRssScraper().fetch()
 
-        self.assertEqual(len(materials), 1)
-        self.assertEqual(materials[0]["content"], title)
-        self.assertEqual(materials[0]["category"], "news")
+        self.assertEqual(materials, [])
 
     def test_legal_scraper_uses_flk_source(self):
         from unittest.mock import patch

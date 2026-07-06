@@ -1,6 +1,7 @@
-import logging
+﻿import logging
 from PyQt6.QtCore import QSettings
 from src.constants import DEFAULT_DIFFICULTY, DEFAULT_FALLING_SPEED, DEFAULT_FONT_SIZE, DEFAULT_TIMED_DURATION, WINDOW_HEIGHT, WINDOW_WIDTH
+from src.utils.paths import get_app_dir
 
 
 # Valid ranges for config values
@@ -35,7 +36,8 @@ class ConfigManager:
         return cls._instance
 
     def __init__(self):
-        self._settings = QSettings("逐字拾光", "逐字拾光")
+        ini_path = str(get_app_dir() / "settings.ini")
+        self._settings = QSettings(ini_path, QSettings.Format.IniFormat)
         self._defaults = {
             "difficulty": DEFAULT_DIFFICULTY,
             "falling_speed": DEFAULT_FALLING_SPEED,
@@ -83,3 +85,4 @@ class ConfigManager:
             logging.warning("ConfigManager: invalid value for '%s': %r (ignored)", key, value)
             return
         self._settings.setValue(key, value)
+

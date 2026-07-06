@@ -191,6 +191,40 @@ class BaseSequentialTypingMode(BaseTypingMode):
             "finished": self.is_game_over(),
         }
 
+    def backspace(self) -> bool:
+        """Revert the previous typed character and move the cursor back one step."""
+        if self._current_index <= 0 or not self._char_states:
+            return False
+
+        if self._current_index < len(self._char_states):
+            self._char_states[self._current_index] = 0
+
+        target = self._current_index - 1
+        previous_state = self._char_states[target]
+        if previous_state == 1 and self._correct_count > 0:
+            self._correct_count -= 1
+        if self._total_typed > 0:
+            self._total_typed -= 1
+        if self._recent_chars:
+            self._recent_chars.pop()
+
+        for index in range(len(self._mistake_events) - 1, -1, -1):
+            if self._mistake_events[index].get("position") == target:
+                self._mistake_events.pop(index)
+                break
+
+        self._current_index = target
+        self._char_states[target] = 3
+        self._current_pinyin = ""
+        logger.info(
+            "%s.backspace cursor=%d total=%d correct=%d",
+            type(self).__name__,
+            self._current_index,
+            self._total_typed,
+            self._correct_count,
+        )
+        return True
+
     @property
     def char_states(self) -> list[int]:
         return list(self._char_states)

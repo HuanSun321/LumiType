@@ -22,6 +22,7 @@ env/
 # Logs
 *.log
 crash.log
+settings.ini
 
 # IDE
 .vscode/

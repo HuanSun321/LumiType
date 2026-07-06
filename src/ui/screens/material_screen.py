@@ -222,7 +222,7 @@ class MaterialScreen(QWidget):
         """)
         btn_layout.addWidget(fav_btn)
 
-        import_btn = QPushButton("📂 导入本地文本")
+        import_btn = QPushButton("📂 导入本地素材")
         import_btn.clicked.connect(self._import_local_text)
         import_btn.setStyleSheet(f"""
             QPushButton {{
@@ -373,16 +373,16 @@ class MaterialScreen(QWidget):
         QMessageBox.warning(self, "下载失败", f"错误: {error_msg}")
 
     def _import_local_text(self):
-        """Import local .txt or .json files as legal practice materials."""
+        """Import local .txt, .json, .docx, or .doc files as legal practice materials."""
         file_paths, _ = QFileDialog.getOpenFileNames(
-            self, "选择要导入的文本文件", "",
-            "文本文件 (*.txt *.json);;所有文件 (*)"
+            self, "选择要导入的素材文件", "",
+            "素材文件 (*.txt *.json *.docx *.doc);;文本文件 (*.txt *.json);;Word 文件 (*.docx *.doc);;所有文件 (*)"
         )
         if not file_paths:
             return
 
-        import hashlib
         from src.app import App
+        from src.materials.document_importer import load_local_materials
         from src.materials.material_store import MaterialStore
 
         thread_conn = App.instance().db.create_thread_connection()
@@ -391,51 +391,9 @@ class MaterialScreen(QWidget):
 
         for file_path in file_paths:
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    text = f.read().strip()
-
-                if file_path.endswith(".json"):
-                    items = __import__("json").loads(text)
-                    if isinstance(items, list):
-                        for item in items:
-                            content = item.get("content", "").strip()
-                            if not content:
-                                continue
-                            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-                            mat = {
-                                "title": item.get("title", "导入文本"),
-                                "content": content,
-                                "author": item.get("author", ""),
-                                "category": "legal",
-                                "difficulty": item.get("difficulty", 3),
-                                "tags": item.get("tags", ["法律文书", "导入"]),
-                                "source": "local_import",
-                                "content_hash": content_hash,
-                            }
-                            if store.save(mat):
-                                imported += 1
-                else:
-                    # Plain text: split by double newlines as separate entries
-                    entries = [e.strip() for e in text.split("\n\n") if e.strip()]
-                    if not entries:
-                        entries = [text]
-                    for entry in entries:
-                        lines = entry.split("\n", 1)
-                        title = lines[0][:50] if lines else "导入文本"
-                        content = entry
-                        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-                        mat = {
-                            "title": title,
-                            "content": content,
-                            "author": "",
-                            "category": "legal",
-                            "difficulty": 3,
-                            "tags": ["法律文书", "导入"],
-                            "source": "local_import",
-                            "content_hash": content_hash,
-                        }
-                        if store.save(mat):
-                            imported += 1
+                for material in load_local_materials(file_path):
+                    if store.save(material):
+                        imported += 1
             except Exception as e:
                 logging.warning("MaterialScreen: import error for %s: %s", file_path, e)
                 continue
@@ -447,4 +405,4 @@ class MaterialScreen(QWidget):
         if imported > 0:
             QMessageBox.information(self, "导入完成", f"成功导入 {imported} 条法律文书素材！")
         else:
-            QMessageBox.warning(self, "导入结果", "未导入任何新素材（可能已存在或文件格式不正确）")
+            QMessageBox.warning(self, "导入结果", "未导入任何新素材（可能已存在、文件为空或格式不支持）")

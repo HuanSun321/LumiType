@@ -168,6 +168,7 @@ class GameScreen(QWidget):
         self._input_bar = InputBar()
         self._input_bar.text_committed.connect(self._on_input)
         self._input_bar.composing_changed.connect(self._on_composing)
+        self._input_bar.backspace_requested.connect(self._on_backspace)
         if mode_name == GameMode.FALLING_TEXT.value:
             self._input_bar.set_direct_mode(True)
             self._input_bar.enter_pressed.connect(self._on_enter_pressed)
@@ -362,6 +363,19 @@ class GameScreen(QWidget):
                 sound.play("combo")
         except Exception as e:
             logging.error("GameScreen: _on_input error: %s", e, exc_info=True)
+
+    def _on_backspace(self):
+        try:
+            if self._engine.state.value != "playing":
+                return
+            if not self._mode or not hasattr(self._mode, "backspace"):
+                return
+            if self._mode.backspace():
+                self._update_display()
+                self._update_hud()
+                App.instance().sound.play("click")
+        except Exception as e:
+            logging.error("GameScreen: _on_backspace error: %s", e, exc_info=True)
 
     def _on_composing(self, pinyin: str):
         if (self._mode

@@ -91,10 +91,10 @@ class KeyboardRabbitWidget(QWidget):
         # ── Spring bones ──
         # Body center: (160, 97)
         # Head center: (160, 65)
-        self._left_ear = SpringBone(145, 27, stiffness=0.08, damping=0.88)
-        self._right_ear = SpringBone(175, 27, stiffness=0.08, damping=0.88)
+        self._left_ear = SpringBone(144, 24, stiffness=0.08, damping=0.88)
+        self._right_ear = SpringBone(176, 24, stiffness=0.08, damping=0.88)
         self._head = SpringBone(160, 65, stiffness=0.12, damping=0.90)
-        self._right_arm = SpringBone(182, 107, stiffness=0.15, damping=0.85)
+        self._right_arm = SpringBone(224, 126, stiffness=0.16, damping=0.84)
 
         # ── Animation state ──
         self._pressed_keys: set[str] = set()
@@ -223,51 +223,79 @@ class KeyboardRabbitWidget(QWidget):
         # Draw rabbit
         self._draw_body(painter, body_cx, body_cy)
         hx, hy = self._head.x, self._head.y
-        self._draw_head(painter, hx, hy)
         self._draw_ears(painter, hx, hy)
+        self._draw_head(painter, hx, hy)
         self._draw_face(painter, hx, hy)
         self._draw_effects(painter, hx, hy)
-        self._draw_arms(painter, body_cx, body_cy)
 
         # Draw keyboard
         self._draw_keyboard(painter)
+        self._draw_arms(painter, body_cx, body_cy)
 
         painter.end()
 
     # ── Rabbit parts ──
 
     def _draw_body(self, painter: QPainter, cx: float, cy: float):
-        pen = QPen(QColor("#FF8FAB"), 1.5, Qt.PenStyle.DashLine)
+        pen = QPen(QColor("#FF8FAB"), 2)
         painter.setPen(pen)
         painter.setBrush(QBrush(QColor("#FFFFFF")))
         painter.drawEllipse(QPointF(cx, cy), 18, 16)
 
     def _draw_head(self, painter: QPainter, cx: float, cy: float):
-        pen = QPen(QColor("#FF8FAB"), 1.5, Qt.PenStyle.DashLine)
+        pen = QPen(QColor("#FF8FAB"), 2)
         painter.setPen(pen)
         painter.setBrush(QBrush(QColor("#FFFFFF")))
         painter.drawEllipse(QPointF(cx, cy), 22, 20)
 
     def _draw_ears(self, painter: QPainter, hx: float, hy: float):
-        ear_pen = QPen(QColor("#FF8FAB"), 1.5, Qt.PenStyle.DashLine)
-        ear_fill = QBrush(QColor("#FFFFFF"))
-        inner_fill = QBrush(QColor("#FFD1DC"))
+        left_base, left_tip, right_base, right_tip = self._ear_geometry(hx, hy)
+        self._draw_single_ear(painter, left_base, left_tip, side=-1)
+        self._draw_single_ear(painter, right_base, right_tip, side=1)
 
-        # Left ear (spring-driven)
-        lx, ly = self._left_ear.x, self._left_ear.y
-        painter.setPen(ear_pen)
-        painter.setBrush(ear_fill)
-        painter.drawEllipse(QPointF(lx, ly), 8, 22)
-        painter.setBrush(inner_fill)
-        painter.drawEllipse(QPointF(lx, ly + 2), 5, 16)
+    def _ear_geometry(self, hx: float, hy: float) -> tuple[QPointF, QPointF, QPointF, QPointF]:
+        """Return ear roots and tips. Roots are anchored to the head."""
+        left_base = QPointF(hx - 18, hy - 28)
+        right_base = QPointF(hx + 18, hy - 28)
+        left_tip = QPointF(self._left_ear.x + (hx - 160) * 0.25, self._left_ear.y + (hy - 65) * 0.25)
+        right_tip = QPointF(self._right_ear.x + (hx - 160) * 0.25, self._right_ear.y + (hy - 65) * 0.25)
+        return left_base, left_tip, right_base, right_tip
 
-        # Right ear (spring-driven)
-        rx, ry = self._right_ear.x, self._right_ear.y
-        painter.setPen(ear_pen)
-        painter.setBrush(ear_fill)
-        painter.drawEllipse(QPointF(rx, ry), 8, 22)
-        painter.setBrush(inner_fill)
-        painter.drawEllipse(QPointF(rx, ry + 2), 5, 16)
+    def _draw_single_ear(self, painter: QPainter, base: QPointF, tip: QPointF, side: int):
+        outer = QPainterPath()
+        outer.moveTo(base.x() - side * 7, base.y() + 12)
+        outer.cubicTo(
+            tip.x() - side * 22, tip.y() + 16,
+            tip.x() - side * 12, tip.y() - 18,
+            tip.x(), tip.y(),
+        )
+        outer.cubicTo(
+            tip.x() + side * 14, tip.y() + 10,
+            base.x() + side * 10, base.y() + 14,
+            base.x() + side * 7, base.y() + 12,
+        )
+        outer.closeSubpath()
+
+        painter.setPen(QPen(QColor("#FF8FAB"), 2))
+        painter.setBrush(QBrush(QColor("#FFFFFF")))
+        painter.drawPath(outer)
+
+        inner = QPainterPath()
+        inner.moveTo(base.x() - side * 2, base.y() + 7)
+        inner.cubicTo(
+            tip.x() - side * 12, tip.y() + 15,
+            tip.x() - side * 6, tip.y() - 8,
+            tip.x() + side * 1, tip.y() + 9,
+        )
+        inner.cubicTo(
+            tip.x() + side * 4, tip.y() + 20,
+            base.x() + side * 4, base.y() + 14,
+            base.x() + side * 2, base.y() + 7,
+        )
+        inner.closeSubpath()
+        painter.setPen(QPen(QColor("#FFB0C8"), 1.2))
+        painter.setBrush(QBrush(QColor("#FFD1DC")))
+        painter.drawPath(inner)
 
     def _draw_face(self, painter: QPainter, cx: float, cy: float):
         expr = self._expression
@@ -428,40 +456,57 @@ class KeyboardRabbitWidget(QWidget):
     # ── Arms ──
 
     def _draw_arms(self, painter: QPainter, body_cx: float, body_cy: float):
-        arm_pen = QPen(QColor("#FF8FAB"), 2, Qt.PenStyle.DashLine)
-        painter.setPen(arm_pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        self._draw_arm(painter, self._left_arm_pose(body_cx, body_cy), mirrored=False)
+        self._draw_arm(painter, self._right_arm_pose(body_cx, body_cy), mirrored=True)
 
-        # Left arm (static, resting)
-        left_start = QPointF(body_cx - 16, body_cy - 6)
-        left_end = QPointF(body_cx - 22, body_cy + 10)
-        painter.drawLine(left_start, left_end)
-        # Paw
-        painter.setPen(QPen(QColor("#FF8FAB"), 1, Qt.PenStyle.DashLine))
-        painter.setBrush(QBrush(QColor("#FFD1DC")))
-        painter.drawEllipse(left_end, 4, 4)
+    def _left_arm_pose(self, body_cx: float, body_cy: float) -> dict[str, QPointF]:
+        shoulder = QPointF(body_cx - 15, body_cy + 1)
+        elbow = QPointF(body_cx - 48, body_cy + 25)
+        paw = QPointF(self._kb_x + 82, self._kb_y + 56)
+        return {"shoulder": shoulder, "elbow": elbow, "paw": paw}
 
-        # Right arm (spring-driven)
-        right_start = QPointF(body_cx + 16, body_cy - 6)
-        ax, ay = self._right_arm.x, self._right_arm.y
-        if self._right_arm.target_x is not None:
-            arm_end = QPointF(ax, min(ay, ay + 5))
-        else:
-            arm_end = QPointF(ax, ay)
+    def _right_arm_pose(self, body_cx: float, body_cy: float) -> dict[str, QPointF]:
+        shoulder = QPointF(body_cx + 15, body_cy + 1)
+        paw = QPointF(self._right_arm.x, self._right_arm.y)
+        elbow = QPointF((shoulder.x() + paw.x()) / 2 + 16, body_cy + 26)
+        return {"shoulder": shoulder, "elbow": elbow, "paw": paw}
 
-        # Curved arm path
+    def _draw_arm(self, painter: QPainter, pose: dict[str, QPointF], mirrored: bool):
+        shoulder = pose["shoulder"]
+        elbow = pose["elbow"]
+        paw = pose["paw"]
+
         arm_path = QPainterPath()
-        arm_path.moveTo(right_start)
-        mid = QPointF((right_start.x() + arm_end.x()) / 2,
-                       right_start.y() + 8)
-        arm_path.quadTo(mid, arm_end)
-        painter.setPen(arm_pen)
+        arm_path.moveTo(shoulder)
+        arm_path.quadTo(elbow, paw)
+
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.setPen(QPen(QColor("#FF8FAB"), 10, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+        painter.drawPath(arm_path)
+        painter.setPen(QPen(QColor("#FFFFFF"), 7, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
         painter.drawPath(arm_path)
 
-        # Paw
-        painter.setPen(QPen(QColor("#FF8FAB"), 1, Qt.PenStyle.DashLine))
+        self._draw_paw(painter, paw, mirrored=mirrored)
+
+    def _draw_paw(self, painter: QPainter, center: QPointF, mirrored: bool):
+        painter.setPen(QPen(QColor("#FF8FAB"), 1.5))
         painter.setBrush(QBrush(QColor("#FFD1DC")))
-        painter.drawEllipse(arm_end, 4, 4)
+        painter.drawEllipse(center, 8, 6)
+
+        toe_offset = -1 if mirrored else 1
+        painter.setPen(QPen(QColor("#FF8FAB"), 1.0))
+        painter.drawLine(
+            QPointF(center.x() - 3 * toe_offset, center.y() - 4),
+            QPointF(center.x() - 4 * toe_offset, center.y() - 8),
+        )
+        painter.drawLine(
+            QPointF(center.x(), center.y() - 5),
+            QPointF(center.x(), center.y() - 9),
+        )
+        painter.drawLine(
+            QPointF(center.x() + 3 * toe_offset, center.y() - 4),
+            QPointF(center.x() + 4 * toe_offset, center.y() - 8),
+        )
 
     # ── Star shape helper ──
 
